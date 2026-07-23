@@ -239,8 +239,14 @@ async function execute() {
     const preview = await api('/api/order-intents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ venue: state.venue, internal_instrument_id: state.instrumentId, side: state.side, intent: state.intent, mode: state.mode, notional_amount: notional }) });
     const confirmed = window.confirm(`确认提交真实订单？\n\n交易所：${venueLabels[preview.venue]}\n合约：${preview.symbol} · ${preview.market_id}\n操作：${preview.position_meaning}\n执行：${preview.order_mode === 'market' ? '吃一价 IOC' : '跟一价 Post Only'}\n金额：${Number(preview.notional_amount).toFixed(2)} ${preview.quote_currency}\n预估数量：${preview.estimated_quantity}\n参考价格：${preview.reference_price}\n\n本确认仅对本次订单有效；盘口变化后必须重新预览。`);
     if (!confirmed) return;
-    await api('/api/execute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ order_intent_token: preview.order_intent_token, confirm_live: true, request_id: requestId() }) });
-    $('#orderNote').textContent = '订单已提交，等待交易所确认。';
+    const submittedAt = performance.now();
+    const result = await api('/api/execute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ order_intent_token: preview.order_intent_token, confirm_live: true, request_id: requestId() }) });
+    const browserRoundTrip = Math.max(0, Math.round(performance.now() - submittedAt));
+    const latency = result.latency || {};
+    const serverPrepare = Number(latency.server_pre_exchange_ms);
+    const exchangeRoundTrip = Number(latency.exchange_round_trip_ms);
+    const serverTotal = Number(latency.server_total_ms);
+    $('#orderNote').textContent = `交易所已受理。浏览器往返 ${browserRoundTrip}ms · 服务端准备 ${Number.isFinite(serverPrepare) ? `${serverPrepare}ms` : '—'} · 交易所响应 ${Number.isFinite(exchangeRoundTrip) ? `${exchangeRoundTrip}ms` : '—'} · 服务端总计 ${Number.isFinite(serverTotal) ? `${serverTotal}ms` : '—'}。交易所响应不等于成交回报。`;
     await load();
   } catch (error) { $('#orderNote').textContent = `交易所拒绝：${error.message}`; }
 }

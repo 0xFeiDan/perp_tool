@@ -396,6 +396,7 @@ class StrategyService:
         expected_quantity: Decimal,
         client_order_id: str | None = None,
         before_submit: Callable[[Decimal, Decimal, str], Awaitable[None]] | None = None,
+        timing: dict[str, float] | None = None,
     ) -> dict[str, Any]:
         """Submit a server-derived order after the optional durable pre-write.
 
@@ -423,15 +424,21 @@ class StrategyService:
                 await before_submit(price, quantity, safe_client_order_id)
             if self.venue == "lighter":
                 await self._ensure_venue_initialized(self.venue)
+                if timing is not None:
+                    timing["exchange_request_started_at"] = time.perf_counter()
                 result = await self.lighter.create_bbo_order(market_index=int(self.market_id), side=request.side, quantity=quantity, bbo_price=price, reduce_only=request.intent == "close", maker=request.mode == "maker", client_id=safe_client_order_id)
                 order_id, client_index = None, result["client_order_index"]
             else:
                 await self._ensure_venue_initialized(self.venue)
+                if timing is not None:
+                    timing["exchange_request_started_at"] = time.perf_counter()
                 kwargs = {"symbol": self.market_id} if self.venue == "binance" else {"coin": self.market_id}
                 result = await self.gateway().create_order(**kwargs, side=request.side, quantity=quantity, price=price, reduce_only=request.intent == "close", maker=request.mode == "maker", client_id=safe_client_order_id)
                 order_id, client_index = result.get("order_id"), None
                 if request.mode == "maker" and not order_id:
                     raise TradingError("exchange did not confirm a resting maker order")
+            if timing is not None:
+                timing["exchange_response_received_at"] = time.perf_counter()
             if request.mode == "maker":
                 async with self.follow_lock:
                     self.follow = FollowOrder(self.venue, self.market_id, request.side, quantity, request.intent == "close", order_id=order_id, client_order_index=client_index, last_price=price)
@@ -909,10 +916,12 @@ async def create_order_intent(request: Request, body: OrderIntentRequest):
 
 @app.post("/api/execute")
 async def execute(request: Request, body: ConfirmIntentRequest):
+    request_received_at = time.perf_counter()
     control.require_http(request, write=True, execute=True)
     control.claim_idempotency(body.request_id)
     durable_claim: RuntimeExecutionClaim | None = None
     durable_order: Any | None = None
+    exchange_timing: dict[str, float] = {}
     try:
         intent = intent_store.consume(token=body.order_intent_token, owner=control.authenticated_owner(request))
         persistence_context = intent.payload.get("persistence_context")
@@ -949,6 +958,7 @@ async def execute(request: Request, body: ConfirmIntentRequest):
             expected_quantity=Decimal(preview["estimated_quantity"]),
             client_order_id=execution_client_order_id(persistence_context.persistent_intent_id),
             before_submit=before_submit,
+            timing=exchange_timing,
         )
         if durable_order is None:
             # Defensive: the execution method must never reach an adapter
@@ -965,7 +975,17 @@ async def execute(request: Request, body: ConfirmIntentRequest):
             status="completed",
             response_reference=durable_order.persistent_order_id,
         )
-        control.audit("execute_submitted", venue=execution.venue, internal_instrument_id=execution.internal_instrument_id, exchange_symbol=result["market_id"], side=execution.side, intent=execution.intent, mode=execution.mode, notional_amount=str(execution.notional_amount), request=request_fingerprint(body.model_dump()), result="accepted")
+        response_ready_at = time.perf_counter()
+        exchange_started_at = exchange_timing.get("exchange_request_started_at", response_ready_at)
+        exchange_received_at = exchange_timing.get("exchange_response_received_at", response_ready_at)
+        latency = {
+            "server_pre_exchange_ms": max(0, int((exchange_started_at - request_received_at) * 1000)),
+            "exchange_round_trip_ms": max(0, int((exchange_received_at - exchange_started_at) * 1000)),
+            "server_post_exchange_ms": max(0, int((response_ready_at - exchange_received_at) * 1000)),
+            "server_total_ms": max(0, int((response_ready_at - request_received_at) * 1000)),
+        }
+        result["latency"] = latency
+        control.audit("execute_submitted", venue=execution.venue, internal_instrument_id=execution.internal_instrument_id, exchange_symbol=result["market_id"], side=execution.side, intent=execution.intent, mode=execution.mode, notional_amount=str(execution.notional_amount), request=request_fingerprint(body.model_dump()), result="accepted", latency=latency)
         return result
     except (TradingError, OrderIntentError) as error:
         # Once the local pre-submit record exists, any adapter failure is
