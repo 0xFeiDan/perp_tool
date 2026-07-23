@@ -623,6 +623,9 @@ async def home(): return FileResponse(ROOT / "index.html")
 @app.get("/styles.css")
 async def styles(): return FileResponse(ROOT / "styles.css", media_type="text/css")
 
+@app.get("/market-product.css")
+async def market_product_styles(): return FileResponse(ROOT / "market-product.css", media_type="text/css")
+
 @app.get("/mt5-readonly.css")
 async def mt5_styles(): return FileResponse(ROOT / "mt5-readonly.css", media_type="text/css")
 
