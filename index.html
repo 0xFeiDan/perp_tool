@@ -35,12 +35,12 @@
           </div>
           <div class="summary-grid">
             <article class="summary-card"><span>总权益</span><strong id="totalEquity">—</strong><small>USDC / USDT 不做伪换算</small></article>
-            <article class="summary-card"><span>可用保证金</span><strong id="availableMargin">—</strong><small>等待交易所账户读取</small></article>
-            <article class="summary-card"><span>未实现盈亏</span><strong id="unrealizedPnl">—</strong><small>由实时持仓同步提供</small></article>
-            <article class="summary-card"><span>已接入账户</span><strong id="configuredVenues">0 / 3</strong><small>仅凭据完整并不代表已开启交易</small></article>
+            <article class="summary-card"><span>可用保证金</span><strong id="availableMargin">—</strong><small>成功读取的账户实时数据</small></article>
+            <article class="summary-card"><span>未实现盈亏</span><strong id="unrealizedPnl">—</strong><small>来自当前真实持仓</small></article>
+            <article class="summary-card"><span>已同步账户</span><strong id="configuredVenues">0 / 3</strong><small>读取权限与交易权限独立</small></article>
           </div>
           <div class="funds-layout">
-            <section class="panel chart-panel"><div class="panel-head"><div><h3>账户权益趋势</h3><p>账户同步完成后显示 21 日以来的真实权益曲线。</p></div><span>数据待同步</span></div><div class="empty-chart"><div class="chart-line"></div><p>暂未取得可验证的历史账户权益</p></div></section>
+            <section class="panel chart-panel"><div class="panel-head"><div><h3>账户权益趋势</h3><p>历史权益曲线将在 21 日起的快照积累后展示。</p></div><span>当前实时快照</span></div><div class="empty-chart"><div class="chart-line"></div><p>当前先展示交易所实时权益；不会用订单记录伪造历史曲线。</p></div></section>
             <section class="panel venue-panel"><div class="panel-head"><div><h3>交易所资金</h3><p>不合并不同结算币，也不估算汇率。</p></div></div><div class="venue-list" id="portfolioVenues"></div></section>
           </div>
           <section class="panel transparency-panel"><span>数据说明</span><p id="portfolioNotice">资金与持仓会在对应交易所账户读取接入后展示；不会用订单记录或估算值伪造账户数据。</p></section>

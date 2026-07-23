@@ -82,6 +82,70 @@ class HyperliquidGateway:
     async def market(self, coin: str) -> dict[str, Any]:
         return self.metadata.get(coin) or next((value for value in await self.markets() if value["market_id"] == coin), None) or (_ for _ in ()).throw(TradingError("Hyperliquid market not found"))
 
+    @staticmethod
+    def _portfolio_decimal(value: object, field: str) -> Decimal:
+        try:
+            parsed = Decimal(str(value))
+        except (InvalidOperation, TypeError, ValueError) as error:
+            raise TradingError(f"Hyperliquid account response has invalid {field}") from error
+        if not parsed.is_finite():
+            raise TradingError(f"Hyperliquid account response has invalid {field}")
+        return parsed
+
+    @staticmethod
+    def _portfolio_text(value: Decimal) -> str:
+        return format(value.normalize(), "f") if value else "0"
+
+    async def portfolio_snapshot(self) -> dict[str, Any]:
+        """Read the primary USDC perpetual account without submitting a signature.
+
+        Hyperliquid's ``clearinghouseState`` is a read-only Info request.  The
+        configured API-wallet private key is deliberately never used here;
+        only the configured account address identifies the account.
+        """
+        if not self.account_address:
+            raise TradingError("Hyperliquid account address is not configured")
+        response = await self._info({"type": "clearinghouseState", "user": self.account_address})
+        if not isinstance(response, dict):
+            raise TradingError("Hyperliquid account response is invalid")
+        margin = response.get("marginSummary")
+        if not isinstance(margin, dict):
+            raise TradingError("Hyperliquid account response has no margin summary")
+        equity = self._portfolio_decimal(margin.get("accountValue"), "account value")
+        available = self._portfolio_decimal(response.get("withdrawable"), "withdrawable balance")
+        positions: list[dict[str, str]] = []
+        unrealized = Decimal("0")
+        for entry in response.get("assetPositions", []):
+            position = entry.get("position") if isinstance(entry, dict) else None
+            if not isinstance(position, dict):
+                continue
+            size = self._portfolio_decimal(position.get("szi"), "position size")
+            if size == 0:
+                continue
+            value = self._portfolio_decimal(position.get("positionValue", "0"), "position value")
+            pnl = self._portfolio_decimal(position.get("unrealizedPnl", "0"), "unrealized pnl")
+            mark = abs(value / size) if size else Decimal("0")
+            positions.append({
+                "venue": "Hyperliquid",
+                "symbol": str(position.get("coin", "—")),
+                "side": "多" if size > 0 else "空",
+                "quantity": self._portfolio_text(abs(size)),
+                "entry_price": str(position.get("entryPx") or "—"),
+                "mark_price": self._portfolio_text(mark) if mark else "—",
+                "unrealized_pnl": self._portfolio_text(pnl),
+                "currency": "USDC",
+            })
+            unrealized += pnl
+        return {
+            "venue": self.venue,
+            "label": "Hyperliquid",
+            "currency": "USDC",
+            "equity": self._portfolio_text(equity),
+            "available_margin": self._portfolio_text(available),
+            "unrealized_pnl": self._portfolio_text(unrealized),
+            "positions": positions,
+        }
+
     async def bbo(self, coin: str) -> dict[str, Decimal]:
         """REST snapshot fallback; the primary pricing source is ``stream_bbo``."""
         data = await self._info({"type": "l2Book", "coin": coin})

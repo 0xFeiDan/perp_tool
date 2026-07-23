@@ -94,16 +94,28 @@ function renderPortfolio(data) {
   $('#portfolioNotice').textContent = data.notice || '等待账户同步。';
   const venues = Array.isArray(data.venues) ? data.venues : [];
   const configured = venues.filter((venue) => venue.configured).length;
-  $('#configuredVenues').textContent = `${configured} / ${venues.length || 3}`;
-  $('#portfolioState').textContent = configured ? '账户读取待同步' : '等待账户 API 配置';
-  $('#portfolioVenues').innerHTML = venues.map((venue) => `<div class="venue-row"><span>${escapeHtml(venue.label)}</span><b>${escapeHtml(venue.currency)}</b><small class="${venue.configured ? 'configured' : ''}">${venue.configured ? '凭据已配置 · 待读取' : '未配置账户 API'}</small></div>`).join('') || '<p class="empty-copy">暂无交易所配置</p>';
-  renderPositions(data.positions || []);
+  const synced = venues.filter((venue) => venue.synced).length;
+  const summary = data.summary && typeof data.summary === 'object' ? data.summary : {};
+  const total = (field) => Object.entries(summary).map(([currency, values]) => {
+    const amount = values && typeof values === 'object' ? values[field] : null;
+    return amount == null ? null : `${fmt(amount)} ${currency}`;
+  }).filter(Boolean).join(' · ') || EMPTY;
+  $('#totalEquity').textContent = total('equity');
+  $('#availableMargin').textContent = total('available_margin');
+  $('#unrealizedPnl').textContent = total('unrealized_pnl');
+  $('#configuredVenues').textContent = `${synced} / ${venues.length || 3}`;
+  $('#portfolioState').textContent = synced ? `已同步 ${synced} 个账户` : (configured ? '账户读取失败' : '等待账户 API 配置');
+  $('#portfolioVenues').innerHTML = venues.map((venue) => {
+    const status = venue.status || (venue.configured ? '待读取' : '未配置账户 API');
+    return `<div class="venue-row"><span>${escapeHtml(venue.label)}</span><b>${escapeHtml(venue.currency)}</b><small class="${venue.synced ? 'configured' : ''}">${escapeHtml(status)}</small></div>`;
+  }).join('') || '<p class="empty-copy">暂无交易所配置</p>';
+  renderPositions(data.positions || [], synced > 0);
 }
 
-function renderPositions(positions) {
+function renderPositions(positions, hasSyncedAccount = false) {
   const rows = Array.isArray(positions) ? positions : [];
   $('#positionCount').textContent = `${rows.length}`;
-  if (!rows.length) { $('#positionsBody').innerHTML = '<tr class="empty"><td colspan="8">等待交易所账户持仓同步</td></tr>'; return; }
+  if (!rows.length) { $('#positionsBody').innerHTML = `<tr class="empty"><td colspan="8">${hasSyncedAccount ? '当前无持仓' : '等待交易所账户持仓同步'}</td></tr>`; return; }
   $('#positionsBody').innerHTML = rows.map((position) => `<tr><td>${escapeHtml(position.venue)}</td><td>${escapeHtml(position.symbol)}</td><td>${escapeHtml(position.side)}</td><td>${escapeHtml(position.quantity)}</td><td>${escapeHtml(position.entry_price)}</td><td>${escapeHtml(position.mark_price)}</td><td>${escapeHtml(position.unrealized_pnl)}</td><td>—</td></tr>`).join('');
 }
 

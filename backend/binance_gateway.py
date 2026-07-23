@@ -73,6 +73,75 @@ class BinanceGateway:
     async def market(self, symbol: str) -> dict[str, Any]:
         return self.metadata.get(symbol) or next((value for value in await self.markets() if value["market_id"] == symbol), None) or (_ for _ in ()).throw(TradingError("Binance market not found"))
 
+    @staticmethod
+    def _portfolio_decimal(value: object, field: str) -> Decimal:
+        try:
+            parsed = Decimal(str(value))
+        except (InvalidOperation, TypeError, ValueError) as error:
+            raise TradingError(f"Binance account response has invalid {field}") from error
+        if not parsed.is_finite():
+            raise TradingError(f"Binance account response has invalid {field}")
+        return parsed
+
+    @staticmethod
+    def _portfolio_text(value: Decimal) -> str:
+        return format(value.normalize(), "f") if value else "0"
+
+    async def portfolio_snapshot(self) -> dict[str, Any]:
+        """Read the USD-M account and its non-zero positions via USER_DATA.
+
+        This is a signed *read* request and remains allowed while
+        ``BINANCE_LIVE_TRADING=false``.  It never creates, changes or cancels
+        an exchange order.
+        """
+        response = await self._signed("GET", "/fapi/v3/account", {}, require_live=False)
+        equity = self._portfolio_decimal(response.get("totalMarginBalance"), "total margin balance")
+        available = self._portfolio_decimal(response.get("availableBalance"), "available balance")
+        reported_pnl = self._portfolio_decimal(response.get("totalUnrealizedProfit", "0"), "unrealized pnl")
+        positions: list[dict[str, str]] = []
+        position_pnl = Decimal("0")
+        raw_positions = response.get("positions", [])
+        if not isinstance(raw_positions, list):
+            raise TradingError("Binance account response has invalid positions")
+        for position in raw_positions:
+            if not isinstance(position, dict) or str(position.get("marginAsset", "USDT")) != "USDT":
+                continue
+            amount = self._portfolio_decimal(position.get("positionAmt", "0"), "position amount")
+            if amount == 0:
+                continue
+            position_side = str(position.get("positionSide", "BOTH")).upper()
+            if position_side == "LONG":
+                side = "多"
+            elif position_side == "SHORT":
+                side = "空"
+            else:
+                side = "多" if amount > 0 else "空"
+            pnl = self._portfolio_decimal(position.get("unrealizedProfit", "0"), "position unrealized pnl")
+            positions.append({
+                "venue": "Binance USD-M",
+                "symbol": str(position.get("symbol", "—")),
+                "side": side,
+                "quantity": self._portfolio_text(abs(amount)),
+                "entry_price": str(position.get("entryPrice") or "—"),
+                "mark_price": str(position.get("markPrice") or "—"),
+                "unrealized_pnl": self._portfolio_text(pnl),
+                "currency": "USDT",
+            })
+            position_pnl += pnl
+        # The account-level value is authoritative for multi-position and
+        # hedge-mode accounts.  Position sums are retained only when Binance
+        # omits the aggregate value in a future response.
+        unrealized = reported_pnl if reported_pnl != 0 or not positions else position_pnl
+        return {
+            "venue": self.venue,
+            "label": "Binance USD-M",
+            "currency": "USDT",
+            "equity": self._portfolio_text(equity),
+            "available_margin": self._portfolio_text(available),
+            "unrealized_pnl": self._portfolio_text(unrealized),
+            "positions": positions,
+        }
+
     async def bbo(self, symbol: str) -> dict[str, Decimal]:
         """REST BBO fallback only.
 

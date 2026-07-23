@@ -129,6 +129,96 @@ class LighterGateway:
         return self.market_metadata.get(market_index) or await self.refresh_market_metadata(market_index)
 
     @staticmethod
+    def _portfolio_decimal(value: object, field: str) -> Decimal:
+        try:
+            parsed = Decimal(str(value))
+        except (InvalidOperation, TypeError, ValueError) as error:
+            raise TradingError(f"Lighter account response has invalid {field}") from error
+        if not parsed.is_finite():
+            raise TradingError(f"Lighter account response has invalid {field}")
+        return parsed
+
+    @staticmethod
+    def _portfolio_text(value: Decimal) -> str:
+        return format(value.normalize(), "f") if value else "0"
+
+    @staticmethod
+    def _first_mapping(payload: object) -> dict[str, Any] | None:
+        """Accept the documented account response and harmless SDK wrappers."""
+        if isinstance(payload, dict):
+            for key in ("account", "data"):
+                nested = payload.get(key)
+                if isinstance(nested, dict):
+                    return nested
+            accounts = payload.get("accounts")
+            if isinstance(accounts, list) and accounts and isinstance(accounts[0], dict):
+                return accounts[0]
+            return payload
+        return None
+
+    @staticmethod
+    def _position_records(value: object) -> list[dict[str, Any]]:
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+        if isinstance(value, dict):
+            return [item for item in value.values() if isinstance(item, dict)]
+        return []
+
+    async def portfolio_snapshot(self) -> dict[str, Any]:
+        """Read a Lighter account by public account index, without signing."""
+        if self.settings.account_index is None:
+            raise TradingError("Lighter account index is not configured")
+        response = await self.http.get(
+            f"{self.settings.base_url}/api/v1/account",
+            params={"by": "index", "value": str(self.settings.account_index), "active_only": "true"},
+        )
+        response.raise_for_status()
+        account = self._first_mapping(response.json())
+        if not isinstance(account, dict):
+            raise TradingError("Lighter account response is invalid")
+        equity = self._portfolio_decimal(
+            account.get("portfolio_value", account.get("portfolioValue", account.get("collateral"))),
+            "collateral",
+        )
+        available = self._portfolio_decimal(
+            account.get("available_balance", account.get("availableBalance", account.get("available_margin", equity))),
+            "available balance",
+        )
+        positions: list[dict[str, str]] = []
+        unrealized = Decimal("0")
+        for position in self._position_records(account.get("positions")):
+            raw_size = position.get("position", position.get("position_size", position.get("size", "0")))
+            size = self._portfolio_decimal(raw_size, "position size")
+            sign = str(position.get("sign", position.get("position_side", ""))).strip().lower()
+            if sign in {"-1", "short", "sell"} and size > 0:
+                size = -size
+            if size == 0:
+                continue
+            pnl = self._portfolio_decimal(position.get("unrealized_pnl", position.get("unrealizedPnl", "0")), "unrealized pnl")
+            value = self._portfolio_decimal(position.get("position_value", position.get("positionValue", "0")), "position value")
+            mark = abs(value / size) if value and size else Decimal("0")
+            positions.append({
+                "venue": "Lighter",
+                "symbol": str(position.get("symbol", position.get("market_symbol", position.get("market_id", "—")))),
+                "side": "多" if size > 0 else "空",
+                "quantity": self._portfolio_text(abs(size)),
+                "entry_price": str(position.get("avg_entry_price", position.get("avgEntryPrice", "—"))),
+                "mark_price": self._portfolio_text(mark) if mark else "—",
+                "unrealized_pnl": self._portfolio_text(pnl),
+                "currency": "USDC",
+            })
+            unrealized += pnl
+        return {
+            "venue": "lighter",
+            "label": "Lighter",
+            "currency": "USDC",
+            "equity": self._portfolio_text(equity),
+            "available_margin": self._portfolio_text(available),
+            "unrealized_pnl": self._portfolio_text(unrealized),
+            "positions": positions,
+        }
+
+    @staticmethod
     def _validate_client_id(client_id: str) -> str:
         normalized = client_id.strip()
         if not normalized or len(normalized) > 256:

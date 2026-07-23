@@ -673,26 +673,84 @@ async def orders(request: Request):
 
 @app.get("/api/portfolio")
 async def portfolio(request: Request):
-    """Safe portfolio-page state without fabricating exchange balances.
+    """Return verified current balances and positions, never estimates.
 
-    Private account-balance and position readers are intentionally added per
-    venue. Until an adapter has completed that authenticated read, the UI must
-    show an explicit pending state rather than invented equity/PnL numbers.
+    Each adapter owns its own read contract.  A failed/omitted venue is
+    reported independently so one bad API key cannot hide another venue's
+    account data or turn the portfolio page into an all-or-nothing failure.
     """
     control.require_http(request)
     start_date = os.getenv("PORTFOLIO_START_DATE", "2026-07-21").strip() or "2026-07-21"
-    venues = [
-        {"venue": "lighter", "label": "Lighter", "currency": "USDC", "configured": service.lighter.credentials_ready},
-        {"venue": "hyperliquid", "label": "Hyperliquid", "currency": "USDC", "configured": service.hyperliquid.credentials_ready},
-        {"venue": "binance", "label": "Binance USD-M", "currency": "USDT", "configured": service.binance.credentials_ready},
+    definitions = [
+        ("lighter", "Lighter", "USDC", service.lighter.credentials_ready, service.lighter.portfolio_snapshot),
+        ("hyperliquid", "Hyperliquid", "USDC", service.hyperliquid.credentials_ready, service.hyperliquid.portfolio_snapshot),
+        ("binance", "Binance USD-M", "USDT", service.binance.credentials_ready, service.binance.portfolio_snapshot),
     ]
+    reads = await asyncio.gather(*(reader() if configured else _portfolio_not_configured() for _, _, _, configured, reader in definitions), return_exceptions=True)
+    venues: list[dict[str, Any]] = []
+    positions: list[dict[str, Any]] = []
+    totals: dict[str, dict[str, Decimal]] = {}
+    synced = 0
+    for (venue, label, currency, configured, _), result in zip(definitions, reads, strict=True):
+        item: dict[str, Any] = {"venue": venue, "label": label, "currency": currency, "configured": configured, "synced": False}
+        if not configured:
+            item["status"] = "未配置账户 API"
+        elif isinstance(result, Exception):
+            # Do not return raw upstream bodies: they can contain account IDs,
+            # signatures or provider-specific diagnostic material.
+            item["status"] = "读取失败"
+            item["error_type"] = type(result).__name__
+        elif isinstance(result, dict):
+            try:
+                equity = Decimal(str(result["equity"]))
+                available = Decimal(str(result["available_margin"]))
+                pnl = Decimal(str(result["unrealized_pnl"]))
+                if not all(value.is_finite() for value in (equity, available, pnl)):
+                    raise ValueError("non-finite portfolio total")
+            except (KeyError, ArithmeticError, ValueError):
+                item["status"] = "读取失败"
+                item["error_type"] = "InvalidPortfolioResponse"
+            else:
+                item.update({
+                    "synced": True,
+                    "status": "已同步",
+                    "equity": format(equity, "f"),
+                    "available_margin": format(available, "f"),
+                    "unrealized_pnl": format(pnl, "f"),
+                })
+                bucket = totals.setdefault(currency, {"equity": Decimal("0"), "available_margin": Decimal("0"), "unrealized_pnl": Decimal("0")})
+                bucket["equity"] += equity
+                bucket["available_margin"] += available
+                bucket["unrealized_pnl"] += pnl
+                for position in result.get("positions", []):
+                    if isinstance(position, dict):
+                        positions.append(position)
+                synced += 1
+        else:
+            item["status"] = "读取失败"
+            item["error_type"] = "InvalidPortfolioResponse"
+        venues.append(item)
+    summary = {
+        currency: {name: format(value, "f") for name, value in values.items()}
+        for currency, values in totals.items()
+    }
+    notice = (
+        f"已同步 {synced} 个交易所的当前账户数据；USDC 与 USDT 分开统计，未使用汇率估算。"
+        if synced else "尚未读取到可验证的账户数据；请检查对应交易所的账户 API 配置。"
+    )
     return {
         "from_date": start_date,
-        "summary": None,
-        "positions": [],
+        "as_of": int(time.time() * 1000),
+        "summary": summary,
+        "positions": positions,
         "venues": venues,
-        "notice": "资金与持仓将在对应交易所账户读取接入后展示；当前不会用订单记录或估算值伪造账户数据。",
+        "notice": notice,
     }
+
+
+async def _portfolio_not_configured() -> None:
+    """Keep gather's execution shape uniform without touching an exchange."""
+    return None
 
 @app.get("/api/markets")
 async def markets(request: Request, venue: Literal["lighter", "hyperliquid", "binance"] = "lighter"):
