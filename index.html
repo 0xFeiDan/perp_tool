@@ -3,91 +3,88 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Lighter 策略台</title>
+    <title>Perp Control</title>
     <link rel="stylesheet" href="./styles.css" />
-    <link rel="stylesheet" href="./mt5-readonly.css" />
   </head>
   <body>
     <div class="app-shell">
       <aside class="sidebar">
-        <a class="brand" href="#"><span class="brand-mark">L</span><span>lighter</span></a>
-        <nav>
-          <a class="nav-item active" href="#strategy"><span>⌁</span>策略交易</a>
-          <a class="nav-item" href="#orders"><span>▤</span>委托记录</a>
-          <a class="nav-item" href="#positions"><span>◫</span>仓位</a>
-          <a class="nav-item" href="#mt5" id="mt5Nav"><span>◉</span>MT5 只读</a>
+        <a class="brand" href="#funds" aria-label="Perp Control 首页"><span class="brand-mark">P</span><span>Perp Control</span></a>
+        <nav class="primary-nav" aria-label="主导航">
+          <button class="nav-item active" data-page="funds"><span>◔</span>资金统计</button>
+          <button class="nav-item" data-page="market"><span>⌁</span>市场</button>
         </nav>
-        <div class="sidebar-footer"><span class="status-dot" id="connectionDot"></span> <span id="connectionText">正在连接</span></div>
+        <div class="sidebar-footer"><span class="status-dot" id="connectionDot"></span><span id="connectionText">正在连接</span></div>
       </aside>
 
       <main class="main">
         <header class="topbar">
-          <div class="market-title"><span class="coin">Ξ</span><div><b id="marketSymbol">ETH-USD</b><small>永续合约 · 索引 <span id="marketIndex">0</span></small></div></div>
-          <div style="display:flex;gap:7px;align-items:center"><select id="venueSelect" aria-label="选择交易所" style="max-width:150px;background:#171a20;color:#f4f5f7;border:1px solid #323742;border-radius:6px;padding:8px 10px;font-weight:650"><option value="lighter">Lighter</option><option value="hyperliquid">Hyperliquid</option><option value="binance">Binance USD-M</option></select><input id="marketSearch" type="search" placeholder="搜索币种 / 索引" aria-label="搜索永续合约" style="width:142px;background:#101217;color:#f4f5f7;border:1px solid #323742;border-radius:6px;padding:8px 10px;outline:none" /><select id="marketSelect" aria-label="选择永续合约" style="max-width:190px;background:#171a20;color:#f4f5f7;border:1px solid #323742;border-radius:6px;padding:8px 10px;font-weight:650"><option>解锁后加载市场…</option></select></div>
-          <div class="top-stats"><div>标记价格 <b id="markPrice">3,482.80</b></div><div>24h 涨跌 <b class="green">+2.31%</b></div><div>资金费率 <b>0.0041%</b></div></div>
-          <div style="display:flex;gap:6px;align-items:center"><input id="controlToken" type="password" autocomplete="current-password" placeholder="控制台令牌" aria-label="控制台令牌" style="width:132px;background:#101217;color:#f4f5f7;border:1px solid #323742;border-radius:6px;padding:8px 10px;outline:none" /><button class="wallet" id="unlockButton">解锁控制台</button><button class="wallet" id="liveStatus">控制台已锁定</button></div>
+          <div><h1 id="pageTitle">资金统计</h1><p id="pageSubtitle">账户数据从 2026-07-21 起统计</p></div>
+          <div class="topbar-actions">
+            <span class="connection-chip"><i></i><span id="feedStatus">等待行情连接</span></span>
+            <input id="controlToken" type="password" autocomplete="current-password" placeholder="控制台令牌" aria-label="控制台令牌" />
+            <button class="secondary-button" id="unlockButton">解锁控制台</button>
+            <button class="danger-button" id="liveStatus" type="button">真实交易：关闭</button>
+          </div>
         </header>
 
-        <section class="market-strip">
-          <div><span>买一</span><strong class="green" id="bidPrice">3,482.40</strong><small id="bidSize">18.24 ETH</small></div>
-          <div class="spread"><span>价差</span><strong id="spread">0.40</strong><small>1 tick</small></div>
-          <div><span>卖一</span><strong class="red" id="askPrice">3,482.80</strong><small id="askSize">12.85 ETH</small></div>
-          <div class="streaming"><span class="live-dot"></span><span id="feedStatus">等待实时盘口</span> <small id="feedTime">--</small></div>
+        <section class="page-view active" id="fundsView" aria-labelledby="fundsHeading">
+          <div class="page-heading">
+            <div><h2 id="fundsHeading">资金统计</h2><p>从 <b id="portfolioFrom">2026-07-21</b> 起记录；仅显示已完成账户同步的数据。</p></div>
+            <span class="data-state" id="portfolioState">等待账户同步</span>
+          </div>
+          <div class="summary-grid">
+            <article class="summary-card"><span>总权益</span><strong id="totalEquity">—</strong><small>USDC / USDT 不做伪换算</small></article>
+            <article class="summary-card"><span>可用保证金</span><strong id="availableMargin">—</strong><small>等待交易所账户读取</small></article>
+            <article class="summary-card"><span>未实现盈亏</span><strong id="unrealizedPnl">—</strong><small>由实时持仓同步提供</small></article>
+            <article class="summary-card"><span>已接入账户</span><strong id="configuredVenues">0 / 3</strong><small>仅凭据完整并不代表已开启交易</small></article>
+          </div>
+          <div class="funds-layout">
+            <section class="panel chart-panel"><div class="panel-head"><div><h3>账户权益趋势</h3><p>账户同步完成后显示 21 日以来的真实权益曲线。</p></div><span>数据待同步</span></div><div class="empty-chart"><div class="chart-line"></div><p>暂未取得可验证的历史账户权益</p></div></section>
+            <section class="panel venue-panel"><div class="panel-head"><div><h3>交易所资金</h3><p>不合并不同结算币，也不估算汇率。</p></div></div><div class="venue-list" id="portfolioVenues"></div></section>
+          </div>
+          <section class="panel transparency-panel"><span>数据说明</span><p id="portfolioNotice">资金与持仓会在对应交易所账户读取接入后展示；不会用订单记录或估算值伪造账户数据。</p></section>
         </section>
 
-        <div class="content-grid" id="strategy">
-          <section class="panel strategy-panel">
-            <div class="panel-heading"><div><h1>双向盘口策略</h1><p>开仓与平仓使用相同的市价 / 跟价规则</p></div><span class="pill demo" id="executionState">API LOCKED</span></div>
-
-            <div class="mode-switch" role="tablist"><button class="mode active" data-mode="market">市价吃单</button><button class="mode" data-mode="maker">跟随挂单</button></div>
-            <div class="rule-box" id="marketRule"><span class="rule-icon">↯</span><p><b>市价吃单：</b>买入以当前卖一发出 IOC，卖出以当前买一发出 IOC；成交不了的剩余数量立即取消。</p></div>
-            <div class="rule-box hidden" id="makerRule"><span class="rule-icon">⊹</span><p><b>跟随挂单：</b>买单始终跟随买一，卖单始终跟随卖一。盘口价变动时自动撤单并按新价重挂。</p></div>
-
-            <div class="form-row"><label>执行动作</label><div class="segmented" id="intentSwitch"><button class="selected" data-intent="open">开仓</button><button data-intent="close">平仓</button></div></div>
-            <div class="form-row"><label>方向</label><div class="side-actions"><button class="buy-side" data-side="buy"><span>↑</span> 买入 / 做多</button><button class="sell-side" data-side="sell"><span>↓</span> 卖出 / 做空</button></div></div>
-            <div class="form-row quantity-row"><label for="quantity">金额</label><div class="input-wrap"><input id="quantity" type="number" min="10" step="0.01" value="10.00" /><span id="quoteCurrency">USDC</span></div><div class="quick-size"><button data-pct="5000">5,000</button><button data-pct="10000">10,000</button><button data-pct="30000">30,000</button><button data-pct="50000">50,000</button></div></div>
-
-            <div class="strategy-meta"><div><span id="previewLabel">买入将吃卖一</span><strong id="previewPrice">3,482.80</strong></div><div><span>订单类型</span><strong id="orderType">IOC Limit</strong></div><div><span>仓位保护</span><strong id="reduceOnly">关闭</strong></div></div>
-            <label class="live-confirm"><input type="checkbox" id="liveConfirm" /> 我确认：提交此订单到所选真实交易所账户</label>
-            <button class="execute buy" id="executeButton" disabled>等待 API 解锁</button>
-            <p class="disclaimer">交易所密钥只保存在后端 `.env`；本页面无法读取。市价使用限价 + IOC，因此不会扫过买一/卖一。控制台登录会话自动过期。</p>
-          </section>
-
-          <section class="panel book-panel">
-            <div class="book-heading"><h2>订单簿</h2><span>0.1</span></div>
-            <div class="book-columns"><span>价格 (USD)</span><span>数量 (<span id="bookBaseSymbol">ETH</span>)</span><span>累计</span></div>
-            <div class="book-list asks" id="asks"></div>
-            <div class="mid-price"><span id="midPrice">3,482.60</span><small id="midUsd">≈ $3,482.60</small></div>
-            <div class="book-list bids" id="bids"></div>
-            <div class="book-foot"><span>买卖比</span><div class="ratio"><i></i></div><b id="ratioText">54.7% / 45.3%</b></div>
-          </section>
-        </div>
-
-        <div class="bottom-grid">
-          <section class="panel orders-panel" id="orders"><div class="table-heading"><div><h2>策略订单</h2><span class="count" id="orderCount">0</span></div><button id="cancelAll">取消全部</button></div><div class="table-wrap"><table><thead><tr><th>时间</th><th>动作</th><th>方向</th><th>类型</th><th>价格</th><th>数量</th><th>状态</th></tr></thead><tbody id="ordersBody"><tr class="empty"><td colspan="7">暂时没有策略订单</td></tr></tbody></table></div></section>
-          <section class="panel log-panel"><div class="table-heading"><h2>策略日志</h2><button id="clearLog">清空</button></div><div class="log" id="log"><p><time>--:--:--</time> 等待策略启动</p></div></section>
-        </div>
-
-        <section class="panel mt5-panel" id="mt5" aria-labelledby="mt5Title">
-          <div class="table-heading mt5-heading">
-            <div>
-              <h2 id="mt5Title">MT5 只读监控</h2>
-              <span class="mt5-badge" id="mt5ModeBadge">LOCKED</span>
+        <section class="page-view" id="marketView" aria-labelledby="marketHeading">
+          <div class="market-toolbar">
+            <div><h2 id="marketHeading">市场</h2><p>选择合约后，所有下单预览由后端重新核验盘口与数量。</p></div>
+            <div class="market-controls">
+              <select id="venueSelect" aria-label="选择交易所"><option value="lighter">Lighter · USDC 永续</option><option value="hyperliquid">Hyperliquid · USDC 永续</option><option value="binance">Binance · 全部 USDT 永续</option></select>
+              <input id="marketSearch" type="search" placeholder="搜索合约" aria-label="搜索永续合约" />
+              <select id="marketSelect" aria-label="选择永续合约"><option>解锁后加载市场…</option></select>
             </div>
-            <button id="refreshMt5Button" type="button">刷新只读数据</button>
           </div>
-          <p class="mt5-notice" id="mt5StatusNote">登录控制台后，可查看 Ubuntu MT5 只读 Sidecar 的账户与持仓；此页面不提供下单、改撤单功能。</p>
-          <div class="mt5-summary" id="mt5Summary" aria-live="polite">
-            <div class="mt5-card"><span>连接状态</span><strong id="mt5Connection">等待登录</strong></div>
-            <div class="mt5-card"><span>账户</span><strong id="mt5AccountLogin">—</strong></div>
-            <div class="mt5-card"><span>余额</span><strong id="mt5Balance">—</strong></div>
-            <div class="mt5-card"><span>净值</span><strong id="mt5Equity">—</strong></div>
-            <div class="mt5-card"><span>浮动盈亏</span><strong id="mt5Profit">—</strong></div>
+
+          <section class="bbo-panel" aria-label="最佳买卖价">
+            <div><span>买一</span><strong class="buy-text" id="bidPrice">—</strong><small id="bidSize">—</small></div>
+            <div class="spread"><span>价差</span><strong id="spread">—</strong><small id="marketScope">USDC 永续</small></div>
+            <div><span>卖一</span><strong class="sell-text" id="askPrice">—</strong><small id="askSize">—</small></div>
+            <div class="quote-time"><span>最新行情</span><strong id="feedTime">—</strong><small id="marketSymbol">—</small></div>
+          </section>
+
+          <div class="trade-grid">
+            <section class="panel order-panel">
+              <div class="panel-head"><div><h3>下单</h3><p>市场页包含下单与当前持仓。</p></div><span class="safe-badge" id="executionState">API LOCKED</span></div>
+              <div class="segmented" id="intentSwitch"><button class="selected" data-intent="open">开仓</button><button data-intent="close">平仓</button></div>
+              <div class="side-actions"><button class="buy-side" data-side="buy">↗ 买入开多</button><button class="sell-side" data-side="sell">↘ 卖出开空</button></div>
+              <div class="execution-modes" role="tablist"><button class="mode active" data-mode="market"><b>ϟ 吃单</b><small>买吃卖一，卖吃买一</small></button><button class="mode" data-mode="maker"><b>≡ 跟价挂单</b><small>买跟买一，卖跟卖一</small></button></div>
+              <label class="amount-label" for="quantity">金额 <span id="quoteCurrency">USDC</span></label>
+              <div class="amount-input"><input id="quantity" type="number" min="10" step="0.01" value="10.00" /><span id="amountCurrency">USDC</span></div>
+              <div class="quick-size"><button data-pct="5000">5,000</button><button data-pct="10000">10,000</button><button data-pct="30000">30,000</button><button data-pct="50000">50,000</button></div>
+              <button class="preview-button" id="executeButton" disabled>等待 API 解锁</button>
+              <p class="order-note" id="orderNote">点击后先生成一次性订单预览；确认一次后才会提交。</p>
+            </section>
+
+            <section class="panel preview-panel"><div class="panel-head"><div><h3>订单预览</h3><p>提交前服务端重新校验。</p></div><span class="live-off">真实交易：关闭</span></div>
+              <dl class="preview-list"><div><dt>交易所</dt><dd id="previewVenue">Lighter</dd></div><div><dt>合约</dt><dd id="previewMarket">—</dd></div><div><dt>执行方式</dt><dd id="previewMode">吃单 · Limit + IOC</dd></div><div><dt>方向</dt><dd id="previewDirection">买入开多</dd></div><div><dt>参考价格</dt><dd id="previewPrice">—</dd></div></dl>
+              <div class="confirmation-strip">✓ 单次订单 · 单次确认 · 行情变化后必须重新预览</div>
+            </section>
           </div>
-          <div class="mt5-positions-wrap">
-            <div class="mt5-positions-title"><h3>当前持仓</h3><small id="mt5PositionCount">—</small></div>
-            <div class="table-wrap"><table class="mt5-table"><thead><tr><th>品种</th><th>方向</th><th>手数</th><th>开仓价</th><th>现价</th><th>浮动盈亏</th><th>Ticket</th></tr></thead><tbody id="mt5PositionsBody"><tr class="empty"><td colspan="7">登录后可加载只读持仓</td></tr></tbody></table></div>
-          </div>
+
+          <section class="panel positions-panel"><div class="panel-head"><div><h3>当前持仓</h3><p>仅展示交易所完成账户同步后的真实持仓。</p></div><span class="count" id="positionCount">0</span></div><div class="table-wrap"><table><thead><tr><th>交易所</th><th>合约</th><th>方向</th><th>数量</th><th>开仓均价</th><th>标记价</th><th>未实现盈亏</th><th>操作</th></tr></thead><tbody id="positionsBody"><tr class="empty"><td colspan="8">等待交易所账户持仓同步</td></tr></tbody></table></div></section>
+
+          <section class="panel activity-panel"><div class="panel-head"><div><h3>当前策略订单</h3><p>只显示本控制台已确认的订单状态。</p></div><button class="text-button" id="cancelAll">取消跟价单</button></div><div class="table-wrap"><table><thead><tr><th>时间</th><th>动作</th><th>方向</th><th>类型</th><th>价格</th><th>数量</th><th>状态</th></tr></thead><tbody id="ordersBody"><tr class="empty"><td colspan="7">暂无策略订单</td></tr></tbody></table></div></section>
         </section>
       </main>
     </div>

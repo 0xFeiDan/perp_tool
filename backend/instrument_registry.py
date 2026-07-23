@@ -47,6 +47,7 @@ class Instrument:
             "step_size": self.quantity_step,
             "tick_size": self.price_tick,
             "status": self.status,
+            "market_scope": self.metadata.get("market_scope"),
         }
 
 

@@ -187,6 +187,7 @@ class StrategyService:
             "follow_state": self.follow.state if self.follow else None,
             "error": self.last_error,
             "symbol": self.market.get("symbol", "—"),
+            "market_scope": self.market.get("market_scope", "USDT 永续" if self.venue == "binance" else "USDC 永续"),
             "min_quote_amount": self.market.get("min_quote_amount", "0"),
             "size_decimals": self.market.get("size_decimals", self.market.get("supported_size_decimals", 4)),
             "market_data_age_ms": int((time.monotonic() - self.quote_received_at) * 1000) if self.quote_received_at else None,
@@ -453,7 +454,17 @@ class StrategyService:
     async def markets(self, venue: str) -> list[dict[str, Any]]:
         if venue == "lighter":
             raw = await self.lighter.list_markets()
-            return [{"market_id": str(x["market_id"]), "market_index": int(x["market_id"]), "symbol": x["symbol"], "min_quote_amount": x["min_quote_amount"], "size_decimals": x.get("supported_size_decimals", x.get("size_decimals", 4))} for x in sorted(raw, key=lambda item: item["symbol"])]
+            return [{
+                "market_id": str(x["market_id"]),
+                "market_index": int(x["market_id"]),
+                "symbol": x["symbol"],
+                "base_asset": x["symbol"],
+                "quote_asset": "USDC",
+                "settle_asset": "USDC",
+                "market_scope": "USDC 永续",
+                "min_quote_amount": x["min_quote_amount"],
+                "size_decimals": x.get("supported_size_decimals", x.get("size_decimals", 4)),
+            } for x in sorted(raw, key=lambda item: item["symbol"])]
         return await {"hyperliquid": self.hyperliquid, "binance": self.binance}[venue].markets()
 
     async def select_market(self, venue: str, market_id: str, start_stream: bool = False, internal_instrument_id: str | None = None) -> None:
@@ -469,7 +480,15 @@ class StrategyService:
             target_market_id = str(market_id)
             if venue == "lighter":
                 raw = await self.lighter.refresh_market_metadata(int(target_market_id))
-                target_market = {"market_id": target_market_id, "symbol": raw["symbol"], "min_quote_amount": raw["min_quote_amount"], "size_decimals": raw.get("supported_size_decimals", raw.get("size_decimals", 4))}
+                target_market = {
+                    "market_id": target_market_id,
+                    "symbol": raw["symbol"],
+                    "quote_asset": "USDC",
+                    "settle_asset": "USDC",
+                    "market_scope": "USDC 永续",
+                    "min_quote_amount": raw["min_quote_amount"],
+                    "size_decimals": raw.get("supported_size_decimals", raw.get("size_decimals", 4)),
+                }
                 # When this *active* venue is explicitly armed, initialize its
                 # signer before opening the stream so Lighter account-order
                 # acknowledgements can be subscribed safely. An inactive
@@ -650,6 +669,29 @@ async def orders(request: Request):
         "follow_active": bool(service.follow),
         "follow_state": service.follow.state if service.follow else None,
         "follow_failure_reason": service.follow.failure_reason if service.follow else None,
+    }
+
+@app.get("/api/portfolio")
+async def portfolio(request: Request):
+    """Safe portfolio-page state without fabricating exchange balances.
+
+    Private account-balance and position readers are intentionally added per
+    venue. Until an adapter has completed that authenticated read, the UI must
+    show an explicit pending state rather than invented equity/PnL numbers.
+    """
+    control.require_http(request)
+    start_date = os.getenv("PORTFOLIO_START_DATE", "2026-07-21").strip() or "2026-07-21"
+    venues = [
+        {"venue": "lighter", "label": "Lighter", "currency": "USDC", "configured": service.lighter.credentials_ready},
+        {"venue": "hyperliquid", "label": "Hyperliquid", "currency": "USDC", "configured": service.hyperliquid.credentials_ready},
+        {"venue": "binance", "label": "Binance USD-M", "currency": "USDT", "configured": service.binance.credentials_ready},
+    ]
+    return {
+        "from_date": start_date,
+        "summary": None,
+        "positions": [],
+        "venues": venues,
+        "notice": "资金与持仓将在对应交易所账户读取接入后展示；当前不会用订单记录或估算值伪造账户数据。",
     }
 
 @app.get("/api/markets")

@@ -56,10 +56,25 @@ class HyperliquidGateway:
         response.raise_for_status(); return response.json()
 
     async def markets(self) -> list[dict[str, Any]]:
+        # ``meta`` without a dex selector is Hyperliquid's primary perpetual
+        # DEX. Its collateral is USDC; spot and builder-deployed DEX markets
+        # are intentionally not mixed into this selector.
         metadata = await self._info({"type": "meta"})
         result: list[dict[str, Any]] = []
         for index, item in enumerate(metadata.get("universe", [])):
-            market = {"market_id": item["name"], "symbol": item["name"], "asset_index": index, "size_decimals": int(item.get("szDecimals", 0)), "min_quote_amount": "10"}
+            if item.get("isDelisted") or not str(item.get("name", "")).strip():
+                continue
+            market = {
+                "market_id": item["name"],
+                "symbol": item["name"],
+                "base_asset": item["name"],
+                "quote_asset": "USDC",
+                "settle_asset": "USDC",
+                "market_scope": "USDC 永续",
+                "asset_index": index,
+                "size_decimals": int(item.get("szDecimals", 0)),
+                "min_quote_amount": "10",
+            }
             self.metadata[item["name"]] = market
             result.append(market)
         return sorted(result, key=lambda value: value["symbol"])

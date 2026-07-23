@@ -55,7 +55,17 @@ class BinanceGateway:
             lot = filters.get("LOT_SIZE", {})
             price = filters.get("PRICE_FILTER", {})
             notional = filters.get("MIN_NOTIONAL", {})
-            market = {"market_id": item["symbol"], "symbol": item["symbol"], "min_quote_amount": str(notional.get("notional", "0")), "step_size": str(lot.get("stepSize", "0.001")), "tick_size": str(price.get("tickSize", "0.01"))}
+            market = {
+                "market_id": item["symbol"],
+                "symbol": item["symbol"],
+                "base_asset": item.get("baseAsset"),
+                "quote_asset": "USDT",
+                "settle_asset": "USDT",
+                "market_scope": "USDT 永续",
+                "min_quote_amount": str(notional.get("notional", "0")),
+                "step_size": str(lot.get("stepSize", "0.001")),
+                "tick_size": str(price.get("tickSize", "0.01")),
+            }
             self.metadata[item["symbol"]] = market
             result.append(market)
         return sorted(result, key=lambda value: value["symbol"])
