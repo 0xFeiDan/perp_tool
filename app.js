@@ -13,7 +13,13 @@ async function api(path, options = {}) {
   const response = await fetch(path, { credentials: 'same-origin', ...options, headers });
   const data = await response.json().catch(() => ({}));
   if (response.status === 401 || response.status === 403) lockUi(data.detail || '控制台登录已失效');
-  if (!response.ok) throw new Error(data.detail || '请求失败');
+  if (!response.ok) {
+    const error = new Error(data.detail || '请求失败');
+    error.status = response.status;
+    const retryAfter = Number(response.headers.get('Retry-After'));
+    if (Number.isFinite(retryAfter) && retryAfter > 0) error.retryAfter = retryAfter;
+    throw error;
+  }
   return data;
 }
 
@@ -287,7 +293,16 @@ async function unlock() {
   const token = $('#controlToken').value;
   if (!token) return;
   try { const data = await api('/api/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token }) }); state.csrf = data.csrf; state.authenticated = true; $('#controlToken').value = ''; $('#controlToken').disabled = true; $('#unlockButton').textContent = '控制台已解锁'; await load(); connect(); }
-  catch (error) { $('#liveStatus').textContent = `解锁失败：${error.message}`; }
+  catch (error) {
+    if (error.status === 429 && Number.isFinite(error.retryAfter)) {
+      const remaining = error.retryAfter >= 60 ? `${Math.ceil(error.retryAfter / 60)} 分钟` : `${Math.ceil(error.retryAfter)} 秒`;
+      $('#liveStatus').textContent = `已连续多次输入失败，为保护账户，请在 ${remaining} 后再试。`;
+    } else if (error.status === 401) {
+      $('#liveStatus').textContent = '控制台口令不正确，请核对后再试。';
+    } else {
+      $('#liveStatus').textContent = '暂时无法解锁，请检查服务连接后重试。';
+    }
+  }
 }
 
 function showPage(page) {

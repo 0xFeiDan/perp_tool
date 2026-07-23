@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import math
 import ipaddress
 import json
 import os
@@ -165,7 +166,12 @@ class ControlPlane:
         while bucket and now - bucket[0] > 10 * 60:
             bucket.popleft()
         if len(bucket) >= self.settings.login_attempts_per_10_minutes:
-            raise HTTPException(429, "too many login attempts; wait before trying the control token again")
+            retry_after = max(1, math.ceil((10 * 60) - (now - bucket[0])))
+            raise HTTPException(
+                429,
+                "LOGIN_RATE_LIMITED",
+                headers={"Retry-After": str(retry_after)},
+            )
         bucket.append(now)
 
     def claim_idempotency(self, value: str) -> None:
