@@ -1,0 +1,19 @@
+.mt5-panel{margin:0 34px 32px;overflow:hidden;scroll-margin-top:18px}
+.mt5-heading{align-items:center}
+.mt5-heading>div{display:flex;align-items:center;gap:8px}
+.mt5-badge{border-radius:4px;padding:4px 6px;background:#262b34;color:#b6bdc8;font-size:10px;font-weight:800;letter-spacing:.35px}
+.mt5-badge.verified{background:#143e32;color:#63dfb4}
+.mt5-badge.unsafe{background:#43232b;color:#ffb4bd}
+.mt5-notice{margin:0;padding:13px 18px;color:#9da5b1;background:#0d1015;border-bottom:1px solid var(--line);font-size:12px;line-height:1.55}
+.mt5-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:10px;padding:16px 18px}
+.mt5-card{display:grid;gap:7px;min-width:0;padding:12px;border:1px solid #252a33;border-radius:7px;background:#0d0f13}
+.mt5-card span{color:#858d99;font-size:11px}
+.mt5-card strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-variant-numeric:tabular-nums}
+.mt5-positions-wrap{border-top:1px solid var(--line)}
+.mt5-positions-title{display:flex;align-items:center;justify-content:space-between;padding:14px 18px 6px}
+.mt5-positions-title h3{margin:0;font-size:13px}
+.mt5-positions-title small{color:#848c98;font-size:11px}
+.mt5-table td,.mt5-table th{white-space:nowrap}
+.mt5-panel .table-heading button:disabled{opacity:.55;cursor:wait}
+@media(max-width:1050px){.mt5-panel{margin-left:18px;margin-right:18px}}
+@media(max-width:840px){.mt5-panel{margin:14px}.mt5-summary{grid-template-columns:repeat(2,minmax(0,1fr));padding:14px}.mt5-positions-title{padding-left:14px;padding-right:14px}.mt5-notice{padding-left:14px;padding-right:14px}.mt5-table{min-width:650px}}

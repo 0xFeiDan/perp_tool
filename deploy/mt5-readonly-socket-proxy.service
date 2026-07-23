@@ -1,0 +1,23 @@
+[Unit]
+Description=Unix socket bridge to local MT5 read-only sidecar
+After=mt5-readonly-sidecar.service
+Requires=mt5-readonly-sidecar.service
+
+[Service]
+Type=simple
+# socat owns only this fixed local bridge. The sidecar still requires its own
+# 32+ character token, so socket access alone cannot read MT5 data.
+User=root
+RuntimeDirectory=lighter-mt5
+RuntimeDirectoryMode=0750
+ExecStartPre=/usr/bin/rm -f /run/lighter-mt5/mt5.sock
+ExecStart=/usr/bin/socat UNIX-LISTEN:/run/lighter-mt5/mt5.sock,fork,mode=0660,user=mt5ro,group=10001 TCP4:127.0.0.1:8900
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/run/lighter-mt5
+
+[Install]
+WantedBy=multi-user.target

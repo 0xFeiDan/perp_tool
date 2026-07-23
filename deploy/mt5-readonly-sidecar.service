@@ -1,0 +1,24 @@
+[Unit]
+Description=Lighter MT5 read-only Wine sidecar
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mt5ro
+Group=mt5ro
+EnvironmentFile=/etc/lighter/mt5-readonly.env
+Environment=HOME=/var/lib/mt5ro
+Environment=WINEPREFIX=/var/lib/mt5ro/wineprefix
+WorkingDirectory=/opt/lighter/backend
+StateDirectory=mt5ro
+ExecStart=/opt/lighter/deploy/run-mt5-sidecar.sh
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ReadWritePaths=/var/lib/mt5ro
+
+[Install]
+WantedBy=multi-user.target

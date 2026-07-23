@@ -1,0 +1,12 @@
+.git
+.agents
+__pycache__
+backend/__pycache__
+backend/.env
+.env
+backend/audit.jsonl
+backend/runtime_state.json
+backend/runtime
+deploy/mt5-readonly.env
+*.pyc
+python-3.12.10-amd64.exe

@@ -1,0 +1,7 @@
+# Optional production overlay for the Ubuntu/Wine MT5 read-only sidecar.
+# The host service creates /run/lighter-mt5/mt5.sock with group ID 10001;
+# the primary container can connect but cannot modify the socket directory.
+services:
+  backend:
+    volumes:
+      - /run/lighter-mt5:/run/mt5-sidecar:ro
