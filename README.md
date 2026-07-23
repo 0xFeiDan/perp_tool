@@ -130,13 +130,13 @@ chmod 600 backend/.env deploy/compose.env
 
 ```dotenv
 PUBLIC_HTTPS=true
-ALLOWED_HOSTS=your-node.tailnet-name.ts.net
+ALLOWED_HOSTS=your-node.tailnet-name.ts.net,127.0.0.1,localhost
 ALLOWED_ORIGINS=https://your-node.tailnet-name.ts.net
 TRUST_PROXY_HEADERS=false
 BIND_SESSION_TO_IP=false
 ```
 
-这里必须使用你的**准确** Tailnet HTTPS 主机名；不要使用 `*`、通配域或把公网 IP 写进 Origin。`BIND_SESSION_TO_IP=false` 是 Tailscale/反向代理场景的推荐值，避免移动网络或代理路径变化使会话失效；当前 Tailscale Serve + Caddy 链路也不需要信任代理传来的客户端 IP，故保持 `TRUST_PROXY_HEADERS=false`。
+这里必须使用你的**准确** Tailnet HTTPS 主机名；不要使用 `*`、通配域或把公网 IP 写进 Origin。`127.0.0.1,localhost` 仅允许 Docker 容器内的健康检查 Host，不是公网入口；`ALLOWED_ORIGINS` 仍只保留准确的 HTTPS Tailnet 域名。`BIND_SESSION_TO_IP=false` 是 Tailscale/反向代理场景的推荐值，避免移动网络或代理路径变化使会话失效；当前 Tailscale Serve + Caddy 链路也不需要信任代理传来的客户端 IP，故保持 `TRUST_PROXY_HEADERS=false`。
 
 ### 2. 先验证 Compose 配置，再启动
 
