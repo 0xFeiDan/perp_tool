@@ -1,4 +1,4 @@
-const state = { mode: 'market', intent: 'open', side: 'buy', venue: 'lighter', marketId: '0', instrumentId: null, bid: null, ask: null, bidSize: null, askSize: null, live: false, tradingEnabled: false, ready: false, durableReady: true, authenticated: false, csrf: null, symbol: '—', marketScope: 'USDC 永续', markets: [], portfolio: null };
+const state = { mode: 'market', intent: 'open', side: 'buy', venue: 'lighter', marketId: '0', instrumentId: null, bid: null, ask: null, bidSize: null, askSize: null, live: false, tradingEnabled: false, ready: false, durableReady: true, authenticated: false, csrf: null, symbol: '—', marketScope: 'USDC 永续', markets: [], portfolio: null, switchEpoch: 0, switchInFlight: false };
 const $ = (selector) => document.querySelector(selector);
 const EMPTY = '—';
 const venueLabels = { lighter: 'Lighter', hyperliquid: 'Hyperliquid', binance: 'Binance USD-M' };
@@ -73,12 +73,24 @@ function setQuote(data) {
   refreshPreview();
 }
 
-function updateStatus(data) {
+function isCurrentMarketSnapshot(data) {
+  if (data.venue && data.venue !== state.venue) return false;
+  const instrumentId = data.internal_instrument_id;
+  return !(state.instrumentId && instrumentId && instrumentId !== state.instrumentId);
+}
+
+function updateStatus(data, { force = false } = {}) {
+  // A WebSocket event can be queued just before a market switch. Never let an
+  // old Lighter quote overwrite a Hyperliquid/Binance selection (or vice versa).
+  if (!force && !isCurrentMarketSnapshot(data)) return false;
   state.live = Boolean(data.live_enabled); state.tradingEnabled = Boolean(data.trading_enabled); state.ready = Boolean(data.credentials_ready);
   if (data.durable_execution) state.durableReady = !data.durable_execution.required || Boolean(data.durable_execution.ready);
   updateMarket(data); setQuote(data);
   $('#executionState').textContent = state.live && state.ready ? '真实 API 已启用' : '真实交易已锁定';
+  $('#previewLiveState').textContent = state.live && state.ready ? '真实交易：已启用' : '真实交易：关闭';
+  $('#previewLiveState').className = state.live && state.ready ? 'safe-badge' : 'live-off';
   $('#liveStatus').textContent = !state.authenticated ? '控制台已锁定' : (!state.tradingEnabled ? '真实交易：关闭' : (state.live && state.ready ? '真实交易：已启用' : '真实交易：交易所未解锁'));
+  return true;
 }
 
 function renderMarkets() {
@@ -119,35 +131,65 @@ function renderPositions(positions, hasSyncedAccount = false) {
   $('#positionsBody').innerHTML = rows.map((position) => `<tr><td>${escapeHtml(position.venue)}</td><td>${escapeHtml(position.symbol)}</td><td>${escapeHtml(position.side)}</td><td>${escapeHtml(position.quantity)}</td><td>${escapeHtml(position.entry_price)}</td><td>${escapeHtml(position.mark_price)}</td><td>${escapeHtml(position.unrealized_pnl)}</td><td>—</td></tr>`).join('');
 }
 
-async function loadMarkets() {
-  const data = await api(`/api/markets?venue=${encodeURIComponent(state.venue)}`);
+async function loadMarkets(venue = state.venue, epoch = state.switchEpoch) {
+  const data = await api(`/api/markets?venue=${encodeURIComponent(venue)}`);
+  if (epoch !== state.switchEpoch || venue !== state.venue) return null;
   state.markets = data.markets || [];
-  if (data.selected_venue === state.venue && data.selected_internal_instrument_id) state.instrumentId = data.selected_internal_instrument_id;
+  if (!state.instrumentId && data.selected_venue === venue && data.selected_internal_instrument_id) state.instrumentId = data.selected_internal_instrument_id;
   renderMarkets();
+  return data;
 }
 
 async function load() {
   try {
     const [health, portfolio] = await Promise.all([api('/api/health'), api('/api/portfolio')]);
-    updateStatus(health); renderPortfolio(portfolio); await loadMarkets();
+    updateStatus(health, { force: !state.instrumentId }); renderPortfolio(portfolio); await loadMarkets();
   } catch (error) { $('#portfolioNotice').textContent = `数据读取失败：${error.message || '后端未启动'}`; }
+}
+
+function clearQuoteForSwitch() {
+  state.marketId = ''; state.symbol = EMPTY; state.bid = state.ask = state.bidSize = state.askSize = null;
+  updateMarket({ venue: state.venue, market_scope: venueScopes[state.venue], min_quote_amount: '10' });
+  setQuote({ connected: false, bid: null, ask: null, bid_size: null, ask_size: null });
+}
+
+async function switchMarket(venue, instrumentId, epoch) {
+  if (!instrumentId || epoch !== state.switchEpoch) return;
+  state.venue = venue; state.instrumentId = instrumentId; state.switchInFlight = true;
+  clearQuoteForSwitch();
+  try {
+    const snapshot = await api(`/api/market/${encodeURIComponent(venue)}/${encodeURIComponent(instrumentId)}`, { method: 'POST' });
+    if (epoch !== state.switchEpoch) return;
+    if (snapshot.venue !== venue || snapshot.internal_instrument_id !== instrumentId) throw new Error('后端返回的交易所或合约与本次选择不一致');
+    updateStatus(snapshot, { force: true });
+  } catch (error) {
+    if (epoch === state.switchEpoch) $('#orderNote').textContent = `切换合约失败：${error.message}`;
+  } finally {
+    if (epoch === state.switchEpoch) state.switchInFlight = false;
+  }
 }
 
 async function selectMarket() {
   const instrumentId = $('#marketSelect').value;
   if (!instrumentId) return;
-  try { updateStatus(await api(`/api/market/${encodeURIComponent(state.venue)}/${encodeURIComponent(instrumentId)}`, { method: 'POST' })); }
-  catch (error) { $('#orderNote').textContent = `切换合约失败：${error.message}`; }
+  const epoch = ++state.switchEpoch;
+  await switchMarket(state.venue, instrumentId, epoch);
 }
 
 async function selectVenue() {
-  state.venue = $('#venueSelect').value; state.instrumentId = null; state.markets = [];
+  const venue = $('#venueSelect').value;
+  const epoch = ++state.switchEpoch;
+  state.venue = venue; state.instrumentId = null; state.markets = [];
   $('#marketSelect').innerHTML = '<option>加载市场…</option>';
+  clearQuoteForSwitch();
   try {
-    await loadMarkets();
-    const current = state.markets.find((market) => String(market.market_id) === state.marketId);
-    if (!current && state.markets.length) { $('#marketSelect').value = state.markets[0].internal_instrument_id; await selectMarket(); }
-  } catch (error) { $('#orderNote').textContent = `加载${venueLabels[state.venue]}市场失败：${error.message}`; }
+    await loadMarkets(venue, epoch);
+    if (epoch !== state.switchEpoch) return;
+    const instrumentId = $('#marketSelect').value || state.markets[0]?.internal_instrument_id;
+    if (!instrumentId) throw new Error('该交易所没有可交易合约');
+    $('#marketSelect').value = instrumentId;
+    await switchMarket(venue, instrumentId, epoch);
+  } catch (error) { if (epoch === state.switchEpoch) $('#orderNote').textContent = `加载${venueLabels[venue]}市场失败：${error.message}`; }
 }
 
 async function execute() {
