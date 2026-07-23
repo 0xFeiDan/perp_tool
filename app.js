@@ -1,4 +1,4 @@
-const state = { mode: 'market', intent: 'open', side: 'buy', venue: 'lighter', marketId: '0', instrumentId: null, bid: null, ask: null, bidSize: null, askSize: null, live: false, tradingEnabled: false, ready: false, durableReady: true, authenticated: false, csrf: null, symbol: '—', marketScope: 'USDC 永续', orders: [], markets: [], portfolio: null };
+const state = { mode: 'market', intent: 'open', side: 'buy', venue: 'lighter', marketId: '0', instrumentId: null, bid: null, ask: null, bidSize: null, askSize: null, live: false, tradingEnabled: false, ready: false, durableReady: true, authenticated: false, csrf: null, symbol: '—', marketScope: 'USDC 永续', markets: [], portfolio: null };
 const $ = (selector) => document.querySelector(selector);
 const EMPTY = '—';
 const venueLabels = { lighter: 'Lighter', hyperliquid: 'Hyperliquid', binance: 'Binance USD-M' };
@@ -88,15 +88,6 @@ function renderMarkets() {
   if (filtered.some((market) => market.internal_instrument_id === state.instrumentId)) $('#marketSelect').value = state.instrumentId;
 }
 
-function renderOrders(orders) {
-  state.orders = orders || [];
-  if (!state.orders.length) { $('#ordersBody').innerHTML = '<tr class="empty"><td colspan="7">暂无策略订单</td></tr>'; return; }
-  $('#ordersBody').innerHTML = state.orders.slice(0, 12).map((order) => {
-    const buy = order.is_ask === false || order.side === 'buy'; const status = order.status || 'pending';
-    return `<tr><td>${escapeHtml(order.updated_at ? new Date(Number(order.updated_at)).toLocaleTimeString('zh-CN', { hour12: false }) : EMPTY)}</td><td>${order.reduce_only ? '平仓' : '开仓'}</td><td class="${buy ? 'buy-text' : 'sell-text'}">${buy ? '买入' : '卖出'}</td><td>${escapeHtml(order.time_in_force || order.type || EMPTY)}</td><td>${escapeHtml(order.price)}</td><td>${escapeHtml(order.remaining_base_amount || order.base_size)}</td><td><span class="status-badge">${escapeHtml(status)}</span></td></tr>`;
-  }).join('');
-}
-
 function renderPortfolio(data) {
   state.portfolio = data;
   $('#portfolioFrom').textContent = data.from_date || '2026-07-21';
@@ -125,15 +116,15 @@ async function loadMarkets() {
 
 async function load() {
   try {
-    const [health, orders, portfolio] = await Promise.all([api('/api/health'), api('/api/orders'), api('/api/portfolio')]);
-    updateStatus(health); renderOrders(orders.orders); renderPortfolio(portfolio); await loadMarkets();
+    const [health, portfolio] = await Promise.all([api('/api/health'), api('/api/portfolio')]);
+    updateStatus(health); renderPortfolio(portfolio); await loadMarkets();
   } catch (error) { $('#portfolioNotice').textContent = `数据读取失败：${error.message || '后端未启动'}`; }
 }
 
 async function selectMarket() {
   const instrumentId = $('#marketSelect').value;
   if (!instrumentId) return;
-  try { updateStatus(await api(`/api/market/${encodeURIComponent(state.venue)}/${encodeURIComponent(instrumentId)}`, { method: 'POST' })); renderOrders([]); }
+  try { updateStatus(await api(`/api/market/${encodeURIComponent(state.venue)}/${encodeURIComponent(instrumentId)}`, { method: 'POST' })); }
   catch (error) { $('#orderNote').textContent = `切换合约失败：${error.message}`; }
 }
 
@@ -160,11 +151,6 @@ async function execute() {
   } catch (error) { $('#orderNote').textContent = `交易所拒绝：${error.message}`; }
 }
 
-async function cancelFollow() {
-  try { const data = await api('/api/cancel-follow', { method: 'POST' }); $('#orderNote').textContent = data.canceled ? '已提交指定跟价单撤销。' : '没有活跃跟价单。'; await load(); }
-  catch (error) { $('#orderNote').textContent = `撤销失败：${error.message}`; }
-}
-
 async function unlock() {
   const token = $('#controlToken').value;
   if (!token) return;
@@ -184,7 +170,7 @@ let socket;
 function connect() {
   if (!state.authenticated || (socket && socket.readyState <= 1)) return;
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws'; socket = new WebSocket(`${protocol}://${location.host}/ws`);
-  socket.onmessage = (event) => { const message = JSON.parse(event.data); if (message.type === 'ticker' || message.type === 'market') updateStatus(message.data); if (message.type === 'orders') renderOrders(message.data.orders); if (message.type === 'execution') load(); };
+  socket.onmessage = (event) => { const message = JSON.parse(event.data); if (message.type === 'ticker' || message.type === 'market') updateStatus(message.data); if (message.type === 'execution') load(); };
   socket.onclose = () => { if (state.authenticated) setTimeout(connect, 2000); };
 }
 
@@ -193,7 +179,7 @@ document.querySelectorAll('.mode').forEach((button) => button.addEventListener('
 document.querySelectorAll('#intentSwitch button').forEach((button) => button.addEventListener('click', () => { state.intent = button.dataset.intent; document.querySelectorAll('#intentSwitch button').forEach((item) => item.classList.toggle('selected', item === button)); document.querySelectorAll('.side-actions button').forEach((item) => item.textContent = state.intent === 'open' ? (item.dataset.side === 'buy' ? '↗ 买入开多' : '↘ 卖出开空') : (item.dataset.side === 'buy' ? '↗ 买入平空' : '↘ 卖出平多')); refreshPreview(); }));
 document.querySelectorAll('.side-actions button').forEach((button) => button.addEventListener('click', () => { state.side = button.dataset.side; refreshPreview(); }));
 document.querySelectorAll('.quick-size button').forEach((button) => button.addEventListener('click', () => { $('#quantity').value = Number(button.dataset.pct).toFixed(2); }));
-$('#marketSelect').addEventListener('change', selectMarket); $('#marketSearch').addEventListener('input', renderMarkets); $('#venueSelect').addEventListener('change', selectVenue); $('#unlockButton').addEventListener('click', unlock); $('#executeButton').addEventListener('click', execute); $('#cancelAll').addEventListener('click', cancelFollow); $('#controlToken').addEventListener('keydown', (event) => { if (event.key === 'Enter') unlock(); });
+$('#marketSelect').addEventListener('change', selectMarket); $('#marketSearch').addEventListener('input', renderMarkets); $('#venueSelect').addEventListener('change', selectVenue); $('#unlockButton').addEventListener('click', unlock); $('#executeButton').addEventListener('click', execute); $('#controlToken').addEventListener('keydown', (event) => { if (event.key === 'Enter') unlock(); });
 
 (async () => {
   const status = await fetch('/api/session', { credentials: 'same-origin' }).then((response) => response.json()).catch(() => ({}));
