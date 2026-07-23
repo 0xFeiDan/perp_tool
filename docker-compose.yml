@@ -91,6 +91,10 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    environment:
+      # The CMD-SHELL healthcheck expands this inside the container. Keep the
+      # secret in deploy/compose.env; never hard-code it in this file.
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?set REDIS_PASSWORD in the deployment environment}
     command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD in the deployment environment}"]
     volumes:
       - redis-data:/data
