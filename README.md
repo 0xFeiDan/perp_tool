@@ -86,6 +86,30 @@ BINANCE_LIVE_TRADING=false
 
 生产建议只允许通过 Tailnet 访问：Docker 不发布 8790、80 或 443 到公网。当前 `docker-compose.yml` 中 Caddy 仅绑定主机回环地址 `127.0.0.1:8080`，PostgreSQL、Redis 与后端仅在 Compose 私有网络中通信；Tailscale Serve 在主机上终止 HTTPS 并转发到该回环地址。
 
+### 2 核 2GB Ubuntu 22.04
+
+该规格可用于单一操作员、单一活跃策略的私有控制面；真实执行前应至少连续观察一天的内存和健康状态。建议先创建 1--2GB swap，避免镜像构建或短时数据库峰值触发 OOM：
+
+```bash
+sudo fallocate -l 2G /swapfile
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile none swap sw 0 0' | sudo tee -a /etc/fstab
+free -h
+```
+
+启动时必须叠加仓储内的低内存覆盖文件。它限制后端、PostgreSQL、Redis 与 Caddy 的内存；PostgreSQL 保留真实下单所需的持久化意图/幂等账本，Redis 设为 `noeviction`，内存耗尽时宁可拒绝写入也不静默丢弃控制数据：
+
+```bash
+docker compose --env-file deploy/compose.env \
+  -f docker-compose.yml -f deploy/docker-compose.lowmem.yml config >/dev/null
+docker compose --env-file deploy/compose.env \
+  -f docker-compose.yml -f deploy/docker-compose.lowmem.yml up -d --build
+```
+
+不要在这台 2GB 服务器上并行运行其他数据库、面板或编译任务。若计划长期实盘、多策略或增加 MT5/Wine，建议升级到至少 2 核 4GB。
+
 ### 1. 准备配置和目录权限
 
 在 Ubuntu 项目根目录执行：
@@ -117,9 +141,12 @@ BIND_SESSION_TO_IP=false
 ### 2. 先验证 Compose 配置，再启动
 
 ```bash
-docker compose --env-file deploy/compose.env config >/dev/null
-docker compose --env-file deploy/compose.env up -d --build
-docker compose --env-file deploy/compose.env ps
+docker compose --env-file deploy/compose.env \
+  -f docker-compose.yml -f deploy/docker-compose.lowmem.yml config >/dev/null
+docker compose --env-file deploy/compose.env \
+  -f docker-compose.yml -f deploy/docker-compose.lowmem.yml up -d --build
+docker compose --env-file deploy/compose.env \
+  -f docker-compose.yml -f deploy/docker-compose.lowmem.yml ps
 curl --fail http://127.0.0.1:8080/healthz
 ```
 

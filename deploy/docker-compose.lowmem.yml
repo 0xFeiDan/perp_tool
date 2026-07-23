@@ -1,0 +1,50 @@
+# Ubuntu 2 vCPU / 2 GiB RAM profile. Apply this only as an override:
+# docker compose --env-file deploy/compose.env \
+#   -f docker-compose.yml -f deploy/docker-compose.lowmem.yml up -d --build
+#
+# This profile preserves the PostgreSQL pre-submit/idempotency ledger required
+# for real execution. Redis is capped and configured to fail writes instead of
+# evicting control-plane data under memory pressure.
+services:
+  backend:
+    cpus: 1.00
+    mem_limit: 400m
+    mem_reservation: 192m
+
+  migrate:
+    cpus: 0.75
+    mem_limit: 320m
+
+  postgres:
+    cpus: 0.50
+    mem_limit: 384m
+    mem_reservation: 128m
+    command:
+      - postgres
+      - -c
+      - shared_buffers=96MB
+      - -c
+      - work_mem=2MB
+      - -c
+      - maintenance_work_mem=32MB
+      - -c
+      - max_connections=20
+
+  redis:
+    cpus: 0.25
+    mem_limit: 160m
+    mem_reservation: 64m
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD:?set REDIS_PASSWORD in the deployment environment}
+      - --maxmemory
+      - 96mb
+      - --maxmemory-policy
+      - noeviction
+
+  caddy:
+    cpus: 0.25
+    mem_limit: 96m
