@@ -112,7 +112,10 @@ class StrategyService:
         self.stream_task: asyncio.Task | None = None
         self.last_error: str | None = None
         self.quote_received_at: float | None = None
-        self.max_quote_age_ms = max(100, min(int(os.getenv("MAX_QUOTE_AGE_MS", "1000")), 10_000))
+        # A one-second window is impractical for a human confirmation dialog,
+        # while five seconds still prevents submitting a disconnected/stalled
+        # order-book quote.  A later BBO move is separately bound and rejected.
+        self.max_quote_age_ms = max(100, min(int(os.getenv("MAX_QUOTE_AGE_MS", "5000")), 10_000))
         self.trading_enabled = os.getenv("TRADING_ENABLED", "false").strip().lower() in {"1", "true", "yes", "on"}
 
     def gateway(self) -> Any:
