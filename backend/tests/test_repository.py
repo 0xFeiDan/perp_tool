@@ -4,6 +4,7 @@ from __future__ import annotations
 import hashlib
 import sys
 import unittest
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -97,6 +98,37 @@ class PersistentRepositoryTests(unittest.TestCase):
             confirmation_token=token,
             request_fingerprint=fingerprint(),
         )
+
+    def test_portfolio_equity_history_updates_one_five_minute_bucket(self) -> None:
+        observed = datetime(2026, 7, 23, 12, 1, tzinfo=timezone.utc)
+        first = self.repository.upsert_portfolio_equity_snapshot(
+            observed_at=observed,
+            total_equity=Decimal("1000"),
+            available_margin=Decimal("900"),
+            unrealized_pnl=Decimal("-3.5"),
+            synced_venues=2,
+        )
+        updated = self.repository.upsert_portfolio_equity_snapshot(
+            observed_at=observed + timedelta(minutes=2),
+            total_equity=Decimal("1010"),
+            available_margin=Decimal("905"),
+            unrealized_pnl=Decimal("4.25"),
+            synced_venues=3,
+        )
+        self.assertEqual(first.bucket_start, updated.bucket_start)
+        history = self.repository.portfolio_equity_history(start_at=datetime(2026, 7, 21, tzinfo=timezone.utc))
+        self.assertEqual(len(history), 1)
+        self.assertEqual(history[0].total_equity, Decimal("1010"))
+        self.assertEqual(history[0].synced_venues, 3)
+
+        self.repository.upsert_portfolio_equity_snapshot(
+            observed_at=observed + timedelta(minutes=6),
+            total_equity=Decimal("1015"),
+            available_margin=Decimal("910"),
+            unrealized_pnl=Decimal("5"),
+            synced_venues=3,
+        )
+        self.assertEqual(len(self.repository.portfolio_equity_history(start_at=datetime(2026, 7, 21, tzinfo=timezone.utc))), 2)
 
     def test_intent_consumes_once_then_order_status_is_audited(self) -> None:
         token = create_confirmation_token()

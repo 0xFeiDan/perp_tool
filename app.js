@@ -100,6 +100,46 @@ function renderMarkets() {
   if (filtered.some((market) => market.internal_instrument_id === state.instrumentId)) $('#marketSelect').value = state.instrumentId;
 }
 
+function chartDate(timestamp) {
+  return new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(timestamp));
+}
+
+function renderEquityChart(rawHistory, fromDate) {
+  const target = $('#equityChart');
+  const start = Date.parse(`${fromDate || '2026-07-21'}T00:00:00Z`);
+  const points = (Array.isArray(rawHistory) ? rawHistory : []).map((point) => ({
+    time: Number(point.timestamp), value: Number(point.equity), synced: Number(point.synced_venues || 0),
+  })).filter((point) => Number.isFinite(point.time) && Number.isFinite(point.value) && point.time >= start).sort((left, right) => left.time - right.time);
+  if (!points.length) {
+    target.classList.remove('has-chart');
+    target.style.display = ''; target.style.padding = '';
+    target.innerHTML = '<p>尚无可验证的账户快照；连接任一账户后会立即开始记录。</p>';
+    return;
+  }
+  target.classList.add('has-chart');
+  target.style.display = 'block'; target.style.padding = '14px 20px';
+  const width = 760; const height = 230; const left = 54; const right = 20; const top = 22; const bottom = 38;
+  const domainEnd = Math.max(Date.now(), points[points.length - 1].time, start + 86400000);
+  const values = points.map((point) => point.value);
+  const low = Math.min(...values); const high = Math.max(...values);
+  const pad = Math.max((high - low) * 0.16, Math.max(Math.abs(high) * 0.025, 1));
+  const minY = low - pad; const maxY = high + pad;
+  const x = (time) => left + ((time - start) / Math.max(1, domainEnd - start)) * (width - left - right);
+  const y = (value) => top + ((maxY - value) / Math.max(0.000001, maxY - minY)) * (height - top - bottom);
+  const line = points.map((point, index) => `${index ? 'L' : 'M'}${x(point.time).toFixed(1)},${y(point.value).toFixed(1)}`).join(' ');
+  const latest = points[points.length - 1];
+  const gridY = [0, .5, 1].map((ratio) => top + ratio * (height - top - bottom));
+  target.innerHTML = `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="账户权益趋势" style="width:100%;height:100%;max-height:260px;overflow:visible">
+    ${gridY.map((value) => `<line x1="${left}" y1="${value}" x2="${width - right}" y2="${value}" stroke="#263443" stroke-width="1"/>`).join('')}
+    <line x1="${x(start)}" y1="${top}" x2="${x(start)}" y2="${height - bottom}" stroke="#3b4e63" stroke-dasharray="4 5"/>
+    <path d="${line}" fill="none" stroke="#3d82f6" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    ${points.map((point) => `<circle cx="${x(point.time).toFixed(1)}" cy="${y(point.value).toFixed(1)}" r="${point === latest ? 5 : 3}" fill="#42d391" stroke="#101721" stroke-width="2"><title>${chartDate(point.time)} · ${fmt(point.value)} USDC/USDT · ${point.synced} 个账户</title></circle>`).join('')}
+    <text x="${left}" y="${height - 12}" fill="#8d9bad" font-size="11">${fromDate || '2026-07-21'}</text>
+    <text x="${width - right}" y="${height - 12}" text-anchor="end" fill="#8d9bad" font-size="11">${chartDate(latest.time)}</text>
+    <text x="${width - right}" y="${top - 5}" text-anchor="end" fill="#bcd3ec" font-size="11">${fmt(latest.value)} USDC/USDT</text>
+  </svg>`;
+}
+
 function renderPortfolio(data) {
   state.portfolio = data;
   $('#portfolioFrom').textContent = data.from_date || '2026-07-21';
@@ -108,10 +148,8 @@ function renderPortfolio(data) {
   const configured = venues.filter((venue) => venue.configured).length;
   const synced = venues.filter((venue) => venue.synced).length;
   const summary = data.summary && typeof data.summary === 'object' ? data.summary : {};
-  const total = (field) => Object.entries(summary).map(([currency, values]) => {
-    const amount = values && typeof values === 'object' ? values[field] : null;
-    return amount == null ? null : `${fmt(amount)} ${currency}`;
-  }).filter(Boolean).join(' · ') || EMPTY;
+  const currency = data.currency || 'USDC/USDT';
+  const total = (field) => summary[field] == null ? EMPTY : `${fmt(summary[field])} ${currency}`;
   $('#totalEquity').textContent = total('equity');
   $('#availableMargin').textContent = total('available_margin');
   $('#unrealizedPnl').textContent = total('unrealized_pnl');
@@ -121,6 +159,8 @@ function renderPortfolio(data) {
     const status = venue.status || (venue.configured ? '待读取' : '未配置账户 API');
     return `<div class="venue-row"><span>${escapeHtml(venue.label)}</span><b>${escapeHtml(venue.currency)}</b><small class="${venue.synced ? 'configured' : ''}">${escapeHtml(status)}</small></div>`;
   }).join('') || '<p class="empty-copy">暂无交易所配置</p>';
+  $('#portfolioHistoryState').textContent = data.history_status || '等待首条快照';
+  renderEquityChart(data.history, data.from_date);
   renderPositions(data.positions || [], synced > 0);
 }
 

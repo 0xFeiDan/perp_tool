@@ -34,6 +34,7 @@ try:  # Compatible with both ``--app-dir backend`` and package imports.
     from .repository import (
         IdempotencyClaim,
         OrderStateSnapshot,
+        PortfolioEquitySnapshot,
         PersistenceRepository,
         repository_if_configured,
     )
@@ -55,6 +56,7 @@ except ImportError:  # pragma: no cover - direct app-dir import path
     from repository import (
         IdempotencyClaim,
         OrderStateSnapshot,
+        PortfolioEquitySnapshot,
         PersistenceRepository,
         repository_if_configured,
     )
@@ -203,6 +205,32 @@ class RuntimePersistenceBridge:
     def dispose(self) -> None:
         if self._repository is not None:
             self._repository.dispose()
+
+    def record_portfolio_snapshot(
+        self,
+        *,
+        observed_at: datetime,
+        total_equity: Decimal | str | int | float,
+        available_margin: Decimal | str | int | float,
+        unrealized_pnl: Decimal | str | int | float,
+        synced_venues: int,
+    ) -> PortfolioEquitySnapshot | None:
+        """Persist a real aggregate account point when durable storage exists."""
+        if self._repository is None:
+            return None
+        return self._repository.upsert_portfolio_equity_snapshot(
+            observed_at=observed_at,
+            total_equity=total_equity,
+            available_margin=available_margin,
+            unrealized_pnl=unrealized_pnl,
+            synced_venues=synced_venues,
+        )
+
+    def portfolio_history(self, *, start_at: datetime) -> list[PortfolioEquitySnapshot]:
+        """Read only the stored real account-equity samples."""
+        if self._repository is None:
+            return []
+        return self._repository.portfolio_equity_history(start_at=start_at)
 
     def prepare_intent(
         self,

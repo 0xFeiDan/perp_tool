@@ -34,14 +34,14 @@
             <span class="data-state" id="portfolioState">等待账户同步</span>
           </div>
           <div class="summary-grid">
-            <article class="summary-card"><span>总权益</span><strong id="totalEquity">—</strong><small>USDC / USDT 不做伪换算</small></article>
+            <article class="summary-card"><span>总权益</span><strong id="totalEquity">—</strong><small>USDC 与 USDT 按 1:1 合计</small></article>
             <article class="summary-card"><span>可用保证金</span><strong id="availableMargin">—</strong><small>成功读取的账户实时数据</small></article>
             <article class="summary-card"><span>未实现盈亏</span><strong id="unrealizedPnl">—</strong><small>来自当前真实持仓</small></article>
             <article class="summary-card"><span>已同步账户</span><strong id="configuredVenues">0 / 3</strong><small>读取权限与交易权限独立</small></article>
           </div>
           <div class="funds-layout">
-            <section class="panel chart-panel"><div class="panel-head"><div><h3>账户权益趋势</h3><p>历史权益曲线将在 21 日起的快照积累后展示。</p></div><span>当前实时快照</span></div><div class="empty-chart"><div class="chart-line"></div><p>当前先展示交易所实时权益；不会用订单记录伪造历史曲线。</p></div></section>
-            <section class="panel venue-panel"><div class="panel-head"><div><h3>交易所资金</h3><p>不合并不同结算币，也不估算汇率。</p></div></div><div class="venue-list" id="portfolioVenues"></div></section>
+            <section class="panel chart-panel"><div class="panel-head"><div><h3>账户权益趋势</h3><p>横轴从 2026-07-21 开始；只绘制真实账户快照，历史缺口会保留空白。</p></div><span id="portfolioHistoryState">等待首条快照</span></div><div class="empty-chart" id="equityChart"><p>正在读取真实权益快照。</p></div></section>
+            <section class="panel venue-panel"><div class="panel-head"><div><h3>交易所资金</h3><p>按 1 USDC = 1 USDT 统计总权益。</p></div></div><div class="venue-list" id="portfolioVenues"></div></section>
           </div>
           <section class="panel transparency-panel"><span>数据说明</span><p id="portfolioNotice">资金与持仓会在对应交易所账户读取接入后展示；不会用订单记录或估算值伪造账户数据。</p></section>
         </section>

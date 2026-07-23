@@ -87,6 +87,7 @@ if _persistence.SQLALCHEMY_AVAILABLE:
     InstrumentRecord = _persistence.InstrumentRecord
     OrderIntentRecord = _persistence.OrderIntentRecord
     OrderRecord = _persistence.OrderRecord
+    PortfolioEquitySnapshotRecord = _persistence.PortfolioEquitySnapshotRecord
     UserRecord = _persistence.UserRecord
 
 
@@ -128,6 +129,18 @@ class OrderStateSnapshot:
     exchange_order_id: str | None
     filled_quantity: Decimal
     updated_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class PortfolioEquitySnapshot:
+    """One real, USDC/USDT 1:1 account-equity observation."""
+
+    bucket_start: datetime
+    observed_at: datetime
+    total_equity: Decimal
+    available_margin: Decimal
+    unrealized_pnl: Decimal
+    synced_venues: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -224,6 +237,17 @@ def _decimal(value: Any, field_name: str, *, positive: bool = False) -> Decimal:
     return result
 
 
+def _signed_decimal(value: Any, field_name: str) -> Decimal:
+    """Parse a finite account value while allowing negative PnL."""
+    try:
+        result = Decimal(str(value))
+    except Exception as error:
+        raise ValueError(f"{field_name} must be a decimal") from error
+    if not result.is_finite():
+        raise ValueError(f"{field_name} must be finite")
+    return result
+
+
 def _public_reference(value: str | None, field_name: str) -> str | None:
     if value is None:
         return None
@@ -277,6 +301,66 @@ class PersistenceRepository:
         """
         with self._engine.connect() as connection:
             connection.execute(text("SELECT 1"))
+
+    def upsert_portfolio_equity_snapshot(
+        self,
+        *,
+        observed_at: datetime,
+        total_equity: Decimal | str | int | float,
+        available_margin: Decimal | str | int | float,
+        unrealized_pnl: Decimal | str | int | float,
+        synced_venues: int,
+        bucket_minutes: int = 5,
+    ) -> PortfolioEquitySnapshot:
+        """Store one verified aggregate equity point per time bucket.
+
+        The series contains no exchange credentials, account identifiers or
+        position details.  It is intentionally separate from order/audit data
+        so an account page refresh cannot be mistaken for trade history.
+        """
+        observed = _as_utc(observed_at, "observed_at")
+        if not isinstance(bucket_minutes, int) or bucket_minutes < 1 or bucket_minutes > 60:
+            raise ValueError("bucket_minutes must be between 1 and 60")
+        if not isinstance(synced_venues, int) or synced_venues < 1 or synced_venues > 3:
+            raise ValueError("synced_venues must be between 1 and 3")
+        equity = _decimal(total_equity, "total_equity")
+        available = _decimal(available_margin, "available_margin")
+        pnl = _signed_decimal(unrealized_pnl, "unrealized_pnl")
+        bucket = observed.replace(minute=observed.minute - (observed.minute % bucket_minutes), second=0, microsecond=0)
+        with self._sessions() as session:
+            with session.begin():
+                record = session.execute(
+                    select(PortfolioEquitySnapshotRecord).where(PortfolioEquitySnapshotRecord.bucket_start == bucket)
+                ).scalar_one_or_none()
+                if record is None:
+                    record = PortfolioEquitySnapshotRecord(
+                        id=str(uuid.uuid4()),
+                        bucket_start=bucket,
+                        observed_at=observed,
+                        total_equity=equity,
+                        available_margin=available,
+                        unrealized_pnl=pnl,
+                        synced_venues=synced_venues,
+                    )
+                    session.add(record)
+                else:
+                    record.observed_at = observed
+                    record.total_equity = equity
+                    record.available_margin = available
+                    record.unrealized_pnl = pnl
+                    record.synced_venues = synced_venues
+                return self._portfolio_snapshot(record)
+
+    def portfolio_equity_history(self, *, start_at: datetime) -> list[PortfolioEquitySnapshot]:
+        """Read chronologically ordered real account samples from ``start_at``."""
+        start = _as_utc(start_at, "start_at")
+        with self._sessions() as session:
+            records = session.execute(
+                select(PortfolioEquitySnapshotRecord)
+                .where(PortfolioEquitySnapshotRecord.bucket_start >= start)
+                .order_by(PortfolioEquitySnapshotRecord.bucket_start.asc())
+            ).scalars().all()
+        return [self._portfolio_snapshot(record) for record in records]
 
     def store_order_intent(self, intent: OrderIntent) -> str:
         """Persist a hashed-token intent; it remains unusable until confirmed."""
@@ -679,6 +763,17 @@ class PersistenceRepository:
         )
 
     @staticmethod
+    def _portfolio_snapshot(record: Any) -> PortfolioEquitySnapshot:
+        return PortfolioEquitySnapshot(
+            bucket_start=_as_utc(record.bucket_start, "bucket_start"),
+            observed_at=_as_utc(record.observed_at, "observed_at"),
+            total_equity=_decimal(record.total_equity, "total_equity"),
+            available_margin=_decimal(record.available_margin, "available_margin"),
+            unrealized_pnl=_signed_decimal(record.unrealized_pnl, "unrealized_pnl"),
+            synced_venues=int(record.synced_venues),
+        )
+
+    @staticmethod
     def _append_audit_row(session: Any, event: AuditEvent) -> None:
         record = event.to_log_record()
         session.add(
@@ -799,6 +894,7 @@ __all__ = [
     "IdempotencyClaim",
     "OrderIntentNotConsumable",
     "OrderStateSnapshot",
+    "PortfolioEquitySnapshot",
     "OrderStateTransitionError",
     "PersistenceRepository",
     "RecordNotFound",

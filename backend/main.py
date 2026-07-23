@@ -8,6 +8,7 @@ import uuid
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Literal
@@ -673,14 +674,15 @@ async def orders(request: Request):
 
 @app.get("/api/portfolio")
 async def portfolio(request: Request):
-    """Return verified current balances and positions, never estimates.
-
-    Each adapter owns its own read contract.  A failed/omitted venue is
-    reported independently so one bad API key cannot hide another venue's
-    account data or turn the portfolio page into an all-or-nothing failure.
-    """
+    """Return real balances plus a durable USDC/USDT 1:1 equity timeline."""
     control.require_http(request)
     start_date = os.getenv("PORTFOLIO_START_DATE", "2026-07-21").strip() or "2026-07-21"
+    try:
+        history_start = datetime.strptime(start_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        # Keep a malformed optional setting from blocking account reads.
+        start_date = "2026-07-21"
+        history_start = datetime(2026, 7, 21, tzinfo=timezone.utc)
     definitions = [
         ("lighter", "Lighter", "USDC", service.lighter.credentials_ready, service.lighter.portfolio_snapshot),
         ("hyperliquid", "Hyperliquid", "USDC", service.hyperliquid.credentials_ready, service.hyperliquid.portfolio_snapshot),
@@ -689,7 +691,7 @@ async def portfolio(request: Request):
     reads = await asyncio.gather(*(reader() if configured else _portfolio_not_configured() for _, _, _, configured, reader in definitions), return_exceptions=True)
     venues: list[dict[str, Any]] = []
     positions: list[dict[str, Any]] = []
-    totals: dict[str, dict[str, Decimal]] = {}
+    totals = {"equity": Decimal("0"), "available_margin": Decimal("0"), "unrealized_pnl": Decimal("0")}
     synced = 0
     for (venue, label, currency, configured, _), result in zip(definitions, reads, strict=True):
         item: dict[str, Any] = {"venue": venue, "label": label, "currency": currency, "configured": configured, "synced": False}
@@ -705,7 +707,7 @@ async def portfolio(request: Request):
                 equity = Decimal(str(result["equity"]))
                 available = Decimal(str(result["available_margin"]))
                 pnl = Decimal(str(result["unrealized_pnl"]))
-                if not all(value.is_finite() for value in (equity, available, pnl)):
+                if not all(value.is_finite() for value in (equity, available, pnl)) or equity < 0 or available < 0:
                     raise ValueError("non-finite portfolio total")
             except (KeyError, ArithmeticError, ValueError):
                 item["status"] = "读取失败"
@@ -718,10 +720,10 @@ async def portfolio(request: Request):
                     "available_margin": format(available, "f"),
                     "unrealized_pnl": format(pnl, "f"),
                 })
-                bucket = totals.setdefault(currency, {"equity": Decimal("0"), "available_margin": Decimal("0"), "unrealized_pnl": Decimal("0")})
-                bucket["equity"] += equity
-                bucket["available_margin"] += available
-                bucket["unrealized_pnl"] += pnl
+                # User-confirmed reporting convention: 1 USDT = 1 USDC.
+                totals["equity"] += equity
+                totals["available_margin"] += available
+                totals["unrealized_pnl"] += pnl
                 for position in result.get("positions", []):
                     if isinstance(position, dict):
                         positions.append(position)
@@ -730,18 +732,62 @@ async def portfolio(request: Request):
             item["status"] = "读取失败"
             item["error_type"] = "InvalidPortfolioResponse"
         venues.append(item)
-    summary = {
-        currency: {name: format(value, "f") for name, value in values.items()}
-        for currency, values in totals.items()
-    }
+
+    observed_at = datetime.now(timezone.utc)
+    history: list[dict[str, Any]] = []
+    history_status = "未启用持久化"
+    if synced:
+        try:
+            snapshot = await asyncio.to_thread(
+                persistence_bridge.record_portfolio_snapshot,
+                observed_at=observed_at,
+                total_equity=totals["equity"],
+                available_margin=totals["available_margin"],
+                unrealized_pnl=totals["unrealized_pnl"],
+                synced_venues=synced,
+            )
+            records = await asyncio.to_thread(persistence_bridge.portfolio_history, start_at=history_start)
+            if snapshot is None:
+                # Local read-only mode still renders the current verified point,
+                # but correctly labels that it cannot survive a restart.
+                records = []
+                history_status = "当前会话快照（未持久化）"
+            else:
+                history_status = "已持久化"
+            history = [
+                {
+                    "timestamp": int(record.observed_at.timestamp() * 1000),
+                    "equity": format(record.total_equity, "f"),
+                    "available_margin": format(record.available_margin, "f"),
+                    "unrealized_pnl": format(record.unrealized_pnl, "f"),
+                    "synced_venues": record.synced_venues,
+                }
+                for record in records
+            ]
+        except Exception:
+            # Read failures must not conceal the live balances shown above.
+            history_status = "历史快照暂不可用"
+        if not history:
+            history = [{
+                "timestamp": int(observed_at.timestamp() * 1000),
+                "equity": format(totals["equity"], "f"),
+                "available_margin": format(totals["available_margin"], "f"),
+                "unrealized_pnl": format(totals["unrealized_pnl"], "f"),
+                "synced_venues": synced,
+            }]
+    summary = {name: format(value, "f") for name, value in totals.items()}
     notice = (
-        f"已同步 {synced} 个交易所的当前账户数据；USDC 与 USDT 分开统计，未使用汇率估算。"
+        f"已同步 {synced} 个交易所的当前账户数据；按你的约定，USDC 与 USDT 以 1:1 合并统计。权益快照从今天立即开始保存。"
         if synced else "尚未读取到可验证的账户数据；请检查对应交易所的账户 API 配置。"
     )
     return {
         "from_date": start_date,
-        "as_of": int(time.time() * 1000),
+        "as_of": int(observed_at.timestamp() * 1000),
+        "currency": "USDC/USDT",
+        "currency_assumption": "1 USDC = 1 USDT",
         "summary": summary,
+        "history": history,
+        "history_status": history_status,
         "positions": positions,
         "venues": venues,
         "notice": notice,

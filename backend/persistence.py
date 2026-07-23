@@ -26,6 +26,7 @@ SCHEMA_TABLES: tuple[str, ...] = (
     "follow_strategies",
     "idempotency_keys",
     "audit_events",
+    "portfolio_equity_snapshots",
 )
 
 
@@ -199,6 +200,26 @@ else:
         metadata_json: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
         occurred_at: Mapped[Any] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now, index=True)
 
+    class PortfolioEquitySnapshotRecord(Base):
+        """A compact, credential-free account-equity time series.
+
+        Values are intentionally stored only after adapters have returned
+        verified account data.  ``bucket_start`` makes repeated page refreshes
+        update one five-minute sample instead of creating write amplification.
+        """
+
+        __tablename__ = "portfolio_equity_snapshots"
+        __table_args__ = (UniqueConstraint("bucket_start", name="uq_portfolio_equity_snapshot_bucket"),)
+
+        id: Mapped[str] = mapped_column(String(36), primary_key=True)
+        bucket_start: Mapped[Any] = mapped_column(DateTime(timezone=True), nullable=False, index=True)
+        observed_at: Mapped[Any] = mapped_column(DateTime(timezone=True), nullable=False)
+        total_equity: Mapped[Any] = mapped_column(Numeric(38, 18), nullable=False)
+        available_margin: Mapped[Any] = mapped_column(Numeric(38, 18), nullable=False)
+        unrealized_pnl: Mapped[Any] = mapped_column(Numeric(38, 18), nullable=False)
+        synced_venues: Mapped[int] = mapped_column(Integer, nullable=False)
+        created_at: Mapped[Any] = mapped_column(DateTime(timezone=True), nullable=False, default=utc_now)
+
 
 def require_sqlalchemy() -> None:
     if not SQLALCHEMY_AVAILABLE:
@@ -256,4 +277,5 @@ if SQLALCHEMY_AVAILABLE:
         "FollowStrategyRecord",
         "IdempotencyKeyRecord",
         "AuditEventRecord",
+        "PortfolioEquitySnapshotRecord",
     ]
