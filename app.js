@@ -275,6 +275,13 @@ document.querySelectorAll('.side-actions button').forEach((button) => button.add
 document.querySelectorAll('.quick-size button').forEach((button) => button.addEventListener('click', () => { $('#quantity').value = Number(button.dataset.pct).toFixed(2); }));
 $('#marketSelect').addEventListener('change', selectMarket); $('#marketSearch').addEventListener('input', renderMarkets); $('#venueSelect').addEventListener('change', selectVenue); $('#unlockButton').addEventListener('click', unlock); $('#executeButton').addEventListener('click', execute); $('#controlToken').addEventListener('keydown', (event) => { if (event.key === 'Enter') unlock(); });
 
+// Keep a real account timeline while the authenticated console is open.  The
+// backend coalesces these into one durable sample per five-minute bucket.
+setInterval(() => {
+  if (!state.authenticated) return;
+  api('/api/portfolio').then(renderPortfolio).catch(() => {});
+}, 5 * 60 * 1000);
+
 (async () => {
   const status = await fetch('/api/session', { credentials: 'same-origin' }).then((response) => response.json()).catch(() => ({}));
   if (status.authenticated && status.csrf) { state.authenticated = true; state.csrf = status.csrf; $('#controlToken').disabled = true; $('#unlockButton').textContent = '控制台已解锁'; await load(); connect(); }
