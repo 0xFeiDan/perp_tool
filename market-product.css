@@ -1,0 +1,14 @@
+/* Product-layer overrides: the trade action stays primary; diagnostics stay optional. */
+.product-trade-grid { grid-template-columns: minmax(430px, 1.12fr) minmax(300px, .88fr); }
+.order-summary { margin: 14px 18px 0; padding: 11px 12px; border: 1px solid #263d57; border-radius: 7px; background: #0c1723; color: #c5d6e9; font-size: 12px; }
+.execution-panel { min-height: 100%; }
+.order-status { margin: 20px 18px 0; padding: 9px 11px; border-radius: 7px; font-weight: 750; color: #c5d6e9; background: #1d2c3d; }
+.order-status.waiting { color: #b8cae0; }
+.order-status.pending { color: #ffd39f; background: #362716; }
+.order-status.success { color: #b7efd4; background: #102d25; }
+.order-status.error { color: #ffc0b9; background: #382022; }
+.order-result { margin: 15px 18px; min-height: 46px; color: #c5d1df; line-height: 1.65; }
+.execution-details { margin: 0 18px 18px; border-top: 1px solid #263443; color: #8294a8; font-size: 12px; }
+.execution-details summary { padding: 13px 0 8px; color: #9fb7d2; cursor: pointer; }
+.execution-details p { margin: 0; line-height: 1.6; word-break: break-word; }
+@media (max-width: 880px) { .product-trade-grid { grid-template-columns: 1fr; } }

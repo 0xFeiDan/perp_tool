@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Perp Control</title>
     <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./market-product.css" />
   </head>
   <body>
     <div class="app-shell">
@@ -63,22 +64,24 @@
             <div class="quote-time"><span>最新行情</span><strong id="feedTime">—</strong><small id="marketSymbol">—</small></div>
           </section>
 
-          <div class="trade-grid">
+          <div class="trade-grid product-trade-grid">
             <section class="panel order-panel">
-              <div class="panel-head"><div><h3>下单</h3><p>市场页包含下单与当前持仓。</p></div><span class="safe-badge" id="executionState">API LOCKED</span></div>
+              <div class="panel-head"><div><h3>下单</h3><p>选择方向和金额，确认一次即可提交。</p></div><span class="safe-badge" id="executionState">未就绪</span></div>
               <div class="segmented" id="intentSwitch"><button class="selected" data-intent="open">开仓</button><button data-intent="close">平仓</button></div>
               <div class="side-actions"><button class="buy-side" data-side="buy">↗ 买入开多</button><button class="sell-side" data-side="sell">↘ 卖出开空</button></div>
               <div class="execution-modes" role="tablist"><button class="mode active" data-mode="market"><b>ϟ 吃单</b><small>买吃卖一，卖吃买一</small></button><button class="mode" data-mode="maker"><b>≡ 跟价挂单</b><small>买跟买一，卖跟卖一</small></button></div>
               <label class="amount-label" for="quantity">金额 <span id="quoteCurrency">USDC</span></label>
               <div class="amount-input"><input id="quantity" type="number" min="10" step="0.01" value="10.00" /><span id="amountCurrency">USDC</span></div>
               <div class="quick-size"><button data-pct="5000">5,000</button><button data-pct="10000">10,000</button><button data-pct="30000">30,000</button><button data-pct="50000">50,000</button></div>
-              <button class="preview-button" id="executeButton" disabled>等待 API 解锁</button>
-              <p class="order-note" id="orderNote">点击后先生成一次性订单预览；确认一次后才会提交。</p>
+              <div class="order-summary" id="orderSummary">等待选择合约与行情</div>
+              <button class="preview-button" id="executeButton" disabled>暂不可下单</button>
+              <p class="order-note" id="orderNote">只会在确认后提交一次真实订单。</p>
             </section>
 
-            <section class="panel preview-panel"><div class="panel-head"><div><h3>订单预览</h3><p>提交前服务端重新校验。</p></div><span class="live-off" id="previewLiveState">真实交易：关闭</span></div>
-              <dl class="preview-list"><div><dt>交易所</dt><dd id="previewVenue">Lighter</dd></div><div><dt>合约</dt><dd id="previewMarket">—</dd></div><div><dt>执行方式</dt><dd id="previewMode">吃单 · Limit + IOC</dd></div><div><dt>方向</dt><dd id="previewDirection">买入开多</dd></div><div><dt>参考价格</dt><dd id="previewPrice">—</dd></div></dl>
-              <div class="confirmation-strip">✓ 单次订单 · 单次确认 · 行情变化后必须重新预览</div>
+            <section class="panel execution-panel"><div class="panel-head"><div><h3>订单状态</h3><p>这里只显示你需要知道的结果。</p></div></div>
+              <div class="order-status waiting" id="orderStatus">准备下单</div>
+              <p class="order-result" id="orderResult">输入金额后，选择买入或卖出。</p>
+              <details class="execution-details" id="executionDetails"><summary>执行详情</summary><p id="executionTechnical">没有需要处理的异常。</p></details>
             </section>
           </div>
 

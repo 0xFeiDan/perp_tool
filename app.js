@@ -32,15 +32,32 @@ function lockUi(message = '请先解锁控制台') {
 
 function refreshPreview() {
   const enabled = state.authenticated && state.live && state.ready && state.durableReady && orderPrice();
-  $('#previewVenue').textContent = venueLabels[state.venue];
-  $('#previewMarket').textContent = displaySymbol();
-  $('#previewMode').textContent = state.mode === 'market' ? '吃单 · Limit + IOC' : '跟价挂单 · Post Only';
-  $('#previewDirection').textContent = action();
-  $('#previewPrice').textContent = fmt(orderPrice());
+  const mode = state.mode === 'market' ? '吃单' : '跟价挂单';
+  const amount = Number($('#quantity').value);
+  const amountText = Number.isFinite(amount) && amount > 0 ? `${fmt(amount)} ${$('#quoteCurrency').textContent}` : '请输入金额';
+  $('#orderSummary').textContent = `${action()} · ${mode} · ${displaySymbol()} · ${amountText}`;
   const button = $('#executeButton');
-  button.textContent = enabled ? '预览订单' : (state.authenticated ? (state.durableReady ? '等待 API 解锁' : '等待安全执行账本') : '请先解锁控制台');
+  button.textContent = enabled ? action() : (state.authenticated ? (state.durableReady ? '等待行情或 API 就绪' : '服务暂未就绪') : '请先解锁控制台');
   button.className = `preview-button ${state.side === 'sell' ? 'sell' : ''}`;
   button.disabled = !enabled;
+}
+
+function setOrderStatus(kind, message, result = '', detail = '') {
+  const status = $('#orderStatus');
+  status.className = `order-status ${kind}`;
+  status.textContent = message;
+  $('#orderResult').textContent = result || message;
+  $('#executionTechnical').textContent = detail || '没有需要处理的异常。';
+  if (kind !== 'error') $('#executionDetails').open = false;
+}
+
+function friendlyOrderError(message) {
+  const raw = String(message || '提交未完成');
+  if (raw.includes('行情已过期') || raw.includes('盘口或预估数量已变化')) return ['价格已变化', '盘口刚刚变动，请再点一次下单即可。'];
+  if (raw.includes('quantity exceeds') || raw.includes('MAX_POSITION_BASE')) return ['金额超过交易所限额', '请降低金额后重新提交。'];
+  if (raw.includes('credentials') || raw.includes('API key')) return ['交易权限未就绪', '请检查该交易所的 API 配置和交易开关。'];
+  if (raw.includes('durable execution') || raw.includes('storage')) return ['服务暂不可下单', '安全订单记录暂不可用，请稍后再试。'];
+  return ['订单未提交', '交易所没有接受这笔订单，请确认金额、合约和账户状态后重试。'];
 }
 
 function updateMarket(data) {
@@ -86,9 +103,7 @@ function updateStatus(data, { force = false } = {}) {
   state.live = Boolean(data.live_enabled); state.tradingEnabled = Boolean(data.trading_enabled); state.ready = Boolean(data.credentials_ready);
   if (data.durable_execution) state.durableReady = !data.durable_execution.required || Boolean(data.durable_execution.ready);
   updateMarket(data); setQuote(data);
-  $('#executionState').textContent = state.live && state.ready ? '真实 API 已启用' : '真实交易已锁定';
-  $('#previewLiveState').textContent = state.live && state.ready ? '真实交易：已启用' : '真实交易：关闭';
-  $('#previewLiveState').className = state.live && state.ready ? 'safe-badge' : 'live-off';
+  $('#executionState').textContent = state.live && state.ready ? '可以下单' : '暂不可下单';
   $('#liveStatus').textContent = !state.authenticated ? '控制台已锁定' : (!state.tradingEnabled ? '真实交易：关闭' : (state.live && state.ready ? '真实交易：已启用' : '真实交易：交易所未解锁'));
   return true;
 }
@@ -234,11 +249,16 @@ async function selectVenue() {
 
 async function execute() {
   const notional = Number($('#quantity').value);
-  if (!Number.isFinite(notional) || notional <= 0 || !state.instrumentId) return;
+  if (!Number.isFinite(notional) || notional <= 0 || !state.instrumentId) {
+    setOrderStatus('error', '请先检查金额', '请输入大于 0 的金额，并确认已选择合约。');
+    return;
+  }
   try {
+    setOrderStatus('pending', '正在准备订单', '正在核对当前价格和下单金额。');
     const preview = await api('/api/order-intents', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ venue: state.venue, internal_instrument_id: state.instrumentId, side: state.side, intent: state.intent, mode: state.mode, notional_amount: notional }) });
-    const confirmed = window.confirm(`确认提交真实订单？\n\n交易所：${venueLabels[preview.venue]}\n合约：${preview.symbol} · ${preview.market_id}\n操作：${preview.position_meaning}\n执行：${preview.order_mode === 'market' ? '吃一价 IOC' : '跟一价 Post Only'}\n金额：${Number(preview.notional_amount).toFixed(2)} ${preview.quote_currency}\n预估数量：${preview.estimated_quantity}\n参考价格：${preview.reference_price}\n\n本确认仅对本次订单有效；盘口变化后必须重新预览。`);
-    if (!confirmed) return;
+    const confirmed = window.confirm(`确认${preview.position_meaning}？\n\n${venueLabels[preview.venue]} · ${preview.symbol}\n金额：${Number(preview.notional_amount).toFixed(2)} ${preview.quote_currency}\n方式：${preview.order_mode === 'market' ? '吃单' : '跟价挂单'}\n参考价：${preview.reference_price}\n\n确定后立即提交。`);
+    if (!confirmed) { setOrderStatus('waiting', '已取消', '订单没有提交。'); return; }
+    setOrderStatus('pending', '正在提交', '订单正在发送到交易所。');
     const submittedAt = performance.now();
     const result = await api('/api/execute', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ order_intent_token: preview.order_intent_token, confirm_live: true, request_id: requestId() }) });
     const browserRoundTrip = Math.max(0, Math.round(performance.now() - submittedAt));
@@ -246,9 +266,21 @@ async function execute() {
     const serverPrepare = Number(latency.server_pre_exchange_ms);
     const exchangeRoundTrip = Number(latency.exchange_round_trip_ms);
     const serverTotal = Number(latency.server_total_ms);
-    $('#orderNote').textContent = `交易所已受理。浏览器往返 ${browserRoundTrip}ms · 服务端准备 ${Number.isFinite(serverPrepare) ? `${serverPrepare}ms` : '—'} · 交易所响应 ${Number.isFinite(exchangeRoundTrip) ? `${exchangeRoundTrip}ms` : '—'} · 服务端总计 ${Number.isFinite(serverTotal) ? `${serverTotal}ms` : '—'}。交易所响应不等于成交回报。`;
+    setOrderStatus(
+      'success',
+      '订单已提交',
+      '交易所已受理。成交或挂单状态会在下方持仓中更新。',
+      `浏览器往返 ${browserRoundTrip}ms；服务端准备 ${Number.isFinite(serverPrepare) ? `${serverPrepare}ms` : '—'}；交易所响应 ${Number.isFinite(exchangeRoundTrip) ? `${exchangeRoundTrip}ms` : '—'}；服务端总计 ${Number.isFinite(serverTotal) ? `${serverTotal}ms` : '—'}。交易所响应不等于成交回报。`,
+    );
+    $('#orderNote').textContent = '订单已提交。';
     await load();
-  } catch (error) { $('#orderNote').textContent = `交易所拒绝：${error.message}`; }
+  } catch (error) {
+    const raw = error.message || '提交未完成';
+    const [title, result] = friendlyOrderError(raw);
+    setOrderStatus('error', title, result, `技术详情：${raw}`);
+    $('#executionDetails').open = true;
+    $('#orderNote').textContent = result;
+  }
 }
 
 async function unlock() {
@@ -278,7 +310,8 @@ document.querySelectorAll('[data-page]').forEach((item) => item.addEventListener
 document.querySelectorAll('.mode').forEach((button) => button.addEventListener('click', () => { state.mode = button.dataset.mode; document.querySelectorAll('.mode').forEach((item) => item.classList.toggle('active', item === button)); refreshPreview(); }));
 document.querySelectorAll('#intentSwitch button').forEach((button) => button.addEventListener('click', () => { state.intent = button.dataset.intent; document.querySelectorAll('#intentSwitch button').forEach((item) => item.classList.toggle('selected', item === button)); document.querySelectorAll('.side-actions button').forEach((item) => item.textContent = state.intent === 'open' ? (item.dataset.side === 'buy' ? '↗ 买入开多' : '↘ 卖出开空') : (item.dataset.side === 'buy' ? '↗ 买入平空' : '↘ 卖出平多')); refreshPreview(); }));
 document.querySelectorAll('.side-actions button').forEach((button) => button.addEventListener('click', () => { state.side = button.dataset.side; refreshPreview(); }));
-document.querySelectorAll('.quick-size button').forEach((button) => button.addEventListener('click', () => { $('#quantity').value = Number(button.dataset.pct).toFixed(2); }));
+document.querySelectorAll('.quick-size button').forEach((button) => button.addEventListener('click', () => { $('#quantity').value = Number(button.dataset.pct).toFixed(2); refreshPreview(); }));
+$('#quantity').addEventListener('input', refreshPreview);
 $('#marketSelect').addEventListener('change', selectMarket); $('#marketSearch').addEventListener('input', renderMarkets); $('#venueSelect').addEventListener('change', selectVenue); $('#unlockButton').addEventListener('click', unlock); $('#executeButton').addEventListener('click', execute); $('#controlToken').addEventListener('keydown', (event) => { if (event.key === 'Enter') unlock(); });
 
 // Keep a real account timeline while the authenticated console is open.  The
